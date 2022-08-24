@@ -1,0 +1,8 @@
+package sedris
+
+sourcedir = "src"
+
+depends
+  = tyre
+  , collie
+  , contrib
