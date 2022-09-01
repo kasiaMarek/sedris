@@ -1,0 +1,5 @@
+[custom.all.tyre]
+type = "github"
+url = "https://github.com/kasiaMarek/TyRE.git"
+ipkg = "tyre.ipkg"
+commit = "latest:greedy"

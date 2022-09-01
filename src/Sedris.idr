@@ -4,9 +4,10 @@ import System.File
 import public Data.Regex
 
 public export
-data SedCommand =
-    Substitute (TyRE a) (a -> String)
-  | Delete (TyRE a)
+data SedCommand : Type where
+  Substitute : (tyre: TyRE a) -> {auto 0 _ : IsConsuming tyre} -> (a -> String)
+            -> SedCommand
+  Delete : (tyre : TyRE a) -> {auto 0 _ : IsConsuming tyre} -> SedCommand
 
 exec : SedCommand -> String -> String
 exec (Substitute tyre f)  = substitute tyre f
