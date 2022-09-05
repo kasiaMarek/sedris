@@ -6,3 +6,7 @@ depends
   = tyre
   , collie
   , contrib
+
+modules 
+  = Sedris.Lang
+  , Sedris
