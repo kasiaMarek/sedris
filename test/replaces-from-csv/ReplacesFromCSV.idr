@@ -2,20 +2,20 @@ import Sedris.Lang
 
 import Data.String
 
-replacesFromCSV : String -> List String -> Script [<]
+replacesFromCSV : String -> List1 String -> Script [<]
 replacesFromCSV source files =
   [ |> CreateHold "map" (the (List (String, String)) [])
-  , [source] *
+  , (source ::: []) *
     [ > HoldApp "map"
                 (\acc,str =>  let (head ::: xs) := split (== ',') str
                               in acc ++ map (\x => (head, x)) xs)]
   , files *
-    [ Line 1 ?> ClearFileDep outFile
+    [ Line 1 ?> ClearFile outFile
     , > WithHoldContent "map"
                         (\replaces => [ |> Replace (AllMulti replaces)])
-    , > WriteToDep outFile
+    , > WriteTo outFile
     ]
   ] where
-  outFile : (String, String, String) -> String
-  outFile (_, name, ext) = "out/" ++ name ++ "." ++ ext
+  outFile : (String, String, String) -> (String, String, String)
+  outFile (_, name, ext) = ("out", name, ext)
 

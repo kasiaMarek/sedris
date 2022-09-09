@@ -3,7 +3,7 @@ import Sedris.Lang
 tenLastLines : String -> Script [<]
 tenLastLines fileName
   = [ |> CreateHold "lines" {t = List String} []
-    , [fileName] *
+    , (fileName ::: []) *
       [ > HoldApp "lines" (\list,str => list ++ [str ++ "\n"])
       , Not (LineRange 1 10)
           ?> ExecOnHold "lines"

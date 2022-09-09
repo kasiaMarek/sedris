@@ -3,7 +3,7 @@ import Sedris.Lang
 wordCount : String -> Script [<]
 wordCount fileName
   = [ |> CreateHold "count" Z
-    , [fileName] *
+    , (fileName ::: []) *
       [ > HoldApp "count" (\curr,line => curr + wc line)
       , LastLine ?> FromHold "count" (const $ the (Nat -> String) show)
       , LastLine ?> Print]
