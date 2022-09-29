@@ -3,9 +3,93 @@ module Sedris.VariableStore
 import Sedris.Lang
 
 public export
-Variables : Type
-Variables = SnocList (VarType, String)
+Variable : Type
+Variable = (VarType, String)
 
+public export
+Variables : Type
+Variables = SnocList Variable
+
+data Weakening : Variables -> Variables -> Type where
+  Weaken : (xs : List Variable) -> {auto 0 ford : sy = sx <>< xs}
+    -> Weakening sx sy
+
+data Thinning : Variables -> Variables -> Type where
+  Lin : Thinning [<] sx
+  (.Keep) : Thinning sx sy -> Thinning (sx :< y) (sy :< y)
+  (.Drop) : Thinning sx sy -> Thinning  sx       (sy :< y)
+
+-- Smart constructors
+(:<) : Thinning sx sy -> (keep : Bool) ->
+  Thinning (ifThenElse keep (sx :< y) sx) (sy :< y)
+tau :< False = tau.Drop
+tau :< True = tau.Keep
+
+I,O : Bool
+I = True
+O = False
+
+id : (sx : Variables) -> Thinning sx sx
+id [<] = [<]
+id (sx :< x) = (id sx).Keep
+
+(.) : Thinning sy sz -> Thinning sx sy -> Thinning sx sz
+
+-- id is neutral, (.) associative, i.e. a category whose objects are
+-- Variables values and morphisms are thinnings
+
+
+Ex1, Ex2 : Thinning [<(Label, "x")] [< (Label, "x"), (Label, "y"), (Label, "x")]
+Ex1 = [< I, O, O]
+Ex2 = [< O, O, I]
+
+namespace Position
+  public export
+  thin : x `Elem` sx -> Thinning sx sy -> x `Elem` sy
+  thin _ [<] impossible
+  thin Here (tau.Keep) = Here
+  thin (There pos) (tau.Keep) = There (pos `thin` tau)
+  thin pos (tau .Drop) = There (pos `thin` tau)
+
+namespace Cmd
+  public export
+  thin : Command sx zs ts -> Thinning sx sy -> Command sy zs ts
+  thin (Replace x) y = Replace x
+  thin (Exec f) y = Exec f
+  thin Print y = ?thin_rhs_7
+  thin (CreateHold holdSpace x) y = CreateHold holdSpace x
+  thin (HoldApp holdSpace f {pos}) tau = HoldApp holdSpace f {pos = pos `thin` tau}
+  thin (FromHold holdSpace f) y = ?thin_rhs_10
+  thin (ExecOnHold holdSpace f) y = ?thin_rhs_11
+  thin (Routine label x) y = ?thin_rhs_12
+  thin (Call label) y = ?thin_rhs_13
+  thin (IfThenElse f x z) y = ?thin_rhs_14
+  thin (WithHoldContent holdSpace f) y = ?thin_rhs_15
+  thin Quit y = ?thin_rhs_16
+
+namespace ScriptCmd
+  public export
+  thin : ScriptCommand sx zs ts -> Thinning sx sy -> ScriptCommand sy zs ts
+  thin (xs * x) y = ?thin_rhs_0
+  thin (|*> x) y = ?thin_rhs_2
+  thin (strs *> x) y = ?thin_rhs_3
+  thin (|> x) y = ?thin_rhs_4
+
+namespace Script
+  public export
+  thin : Script xs ts -> Thinning xs ys -> Script ys ts
+  thin [] y = []
+  thin (cmd :: cmds) y = ?thin_rhs_1
+
+namespace FakeStore
+  data FakeStore : Variables -> Type where
+    Nil : FakeStore [<]
+    (:<) : FakeStore sx -> Unit -> FakeStore (sx :< x)
+
+  thin : FakeStore sy -> Thinning sx sy -> FakeStore sx
+  thin x y = ?thin_rhs
+
+{-
 export
 interface VariableStore (Store : Variables -> FileScriptType -> Type) where
   getHoldSpace : {0 name : String} -> {0 t : Type} -> {0 sx : Variables}
@@ -156,4 +240,4 @@ trim : VMState (vars <>< add) st
     -> { auto 0 ford : l = length vars} -> VMState vars st
 trim vm l {vars} {add} = lift (\hs => trimHoldSpaces {vars} {add} hs l) vm
 -}
-
+-}

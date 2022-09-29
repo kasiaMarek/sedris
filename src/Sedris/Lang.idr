@@ -15,10 +15,13 @@ withOut : (xs : SnocList a) -> (x `Elem` xs) -> SnocList a
 withOut (sx :< _) Here = sx
 withOut (sx :< x) (There pos) = (withOut sx pos) :< x
 
+||| A file loaded into memory, represented as a list of lines
 public export
 LocalFile : Type
 LocalFile = List String
 
+||| A file stored on the OS
+||| (path, name, extension)
 public export
 IOFile : Type
 IOFile = (String, String, String)
@@ -210,7 +213,7 @@ mutual
     LC : LineCommand sx ys t -> AnyCommand sx ys t
     NC : Command sx ys t     -> AnyCommand sx ys t
 
-  public export 
+  public export
   data CommandWithAddress : SnocList (VarType, String)
                           -> List (VarType, String)
                           -> FileScriptType
@@ -218,7 +221,7 @@ mutual
     (>)  : AnyCommand sx ys t -> CommandWithAddress sx ys t
     (?>) : Address -> AnyCommand sx ys t -> CommandWithAddress sx [] t
     (?:) : Address -> FileScript sx t -> CommandWithAddress sx [] t
-    --^ this allows to group multiple commands with the same address, but the 
+    --^ this allows to group multiple commands with the same address, but the
 
   ||| A file script is executed on each line of the file
   public export

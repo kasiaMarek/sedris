@@ -16,7 +16,7 @@ getAllVars [] = []
 getAllVars ((::) cmd {ys} sc) = ys ++ getAllVars sc
 
 record VMState (sx : Variables) (st : FileScriptType) where
-  constructor MkVMState 
+  constructor MkVMState
   patternSpace : String
   resultSpace : SnocList String
   variables : LinkedListStore sx st
@@ -74,9 +74,12 @@ mutual
                         , variables = execOnHoldSpace pos variables f }
   interpretCommand  (Call label {pos})
                     (MkVMState patternSpace resultSpace variables)
-    = let Evidence sx' (sc, hs, f) := getRoutine pos variables
+    = ?H1
+      {-
+      let Evidence sx' (sc, hs, f) := getRoutine pos variables
       in map  (lift $ f . (\x => trim x (length hs) {ford = lengthPrf hs}))
               (interpretAux sc (MkVMState patternSpace resultSpace hs))
+      -}
   interpretCommand  (WithHoldContent holdSpace f {pos})
                     (MkVMState patternSpace resultSpace variables)
     = let (hs', hsF) := withOut variables pos
@@ -90,7 +93,7 @@ mutual
                     (MkVMState patternSpace resultSpace variables)
     = Right $ MkVMState { patternSpace
                         , resultSpace
-                        , variables = label name sc variables 
+                        , variables = label name sc variables
                         }
   interpretCommand  (IfThenElse f sc1 sc2)
                     state@(MkVMState patternSpace resultSpace variables)
