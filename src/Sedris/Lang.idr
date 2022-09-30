@@ -10,10 +10,11 @@ infix   1 ?>,?:
 infix   2 *,*>
 prefix  2 |*>
 
+||| We have two types of scripts
+||| 1) normal, total script
+||| 2) scripts executed line by line for files
 public export
-withOut : (xs : SnocList a) -> (x `Elem` xs) -> SnocList a
-withOut (sx :< _) Here = sx
-withOut (sx :< x) (There pos) = (withOut sx pos) :< x
+data ScriptType = Total | LineByLine
 
 ||| A file loaded into memory, represented as a list of lines
 public export
@@ -44,8 +45,7 @@ chooseFileOut Std   = IOFile
 public export
 data VarType
   = HoldSpace Type
-  | Label
-  | LabelFileScript
+  | Label ScriptType
 
 public export
 data NeedsIO : FileScriptType -> Type where
@@ -100,126 +100,107 @@ data ReplaceCommand : Type where
 
 mutual
   public export
-  data LineCommand : SnocList (VarType, String) -> List (VarType, String)
-                  -> FileScriptType -> Type where
-    |||Delete the contents of the pattern space and start a new cycle
-    Zap : LineCommand sx [] t
-    |||Delete the contents of the pattern space up to the `\n`
-    |||and start the new cycle without reading the next line.
-    |||If no `\n` in the pattern space treat as `Zap`.
-    ZapFstLine : LineCommand sx [] t
-    |||Append a newline and the next line from input to the pattern space
-    ReadApp : LineCommand sx [] t
-    |||Read the next line into the pattern space (deleting what was previously stored)
-    Put : LineCommand sx [] t
-    |||Print the line number
-    LineNumber : LineCommand sx [] t
-    |||Start new cycle
-    NewCycle : LineCommand sx [] t
-    |||Start reading from a new file
-    ReadFrom : {t : FileScriptType} -> (chooseFileOut t) -> LineCommand sx [] t
-    |||Queue next file to read
-    QueueRead : {t : FileScriptType} -> (chooseFileOut t) -> LineCommand sx [] t
-    ||| Create a routine
-    LineRoutine : (label : String) -> FileScript sx t
-                -> LineCommand sx [(LabelFileScript, label)] t
-    CallLineRoutine : (label : String)
-                    -> {auto pos : (LabelFileScript, label) `Elem` sx}
-                    -> LineCommand sx [] t
-    LineIfThenElse : (String -> Bool) -> FileScript sx t -> FileScript sx t
-                   -> LineCommand sx [] t
-    ||| Allows for executing code with value from a chosen holdspace.
-    ||| This holdspace does not exist inside that scope.
-    ||| For simplicity global definitions are not allowed in routines.
-    LineWithHoldContent : (holdSpace : String)
-                        -> {ty : Type}
-                        -> {auto pos : (HoldSpace ty, holdSpace) `Elem` sx}
-                        -> (ty -> FileScript (withOut sx pos) t)
-                        -> LineCommand sx [] t
-    --- other IO commands ---
-    |||Print content of the pattern space
-    PrintStd : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t} -> LineCommand sx [] t
-    ||| Append contents of the pattern space to a file
-    ||| which names depends on current file name - (path, name, extension)
-    WriteTo : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-            -> (chooseFileIn t -> chooseFileOut t) -> LineCommand sx [] t
-    ||| Append contents of the pattern space up to `\n` to a file
-    ||| which names depends on current file name - (path, name, extension)
-    WriteLineTo : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-                -> (chooseFileIn t -> chooseFileOut t) -> LineCommand sx [] t
-    ||| Delete file contents
-    ||| which names depends on current file name - (path, name, extension)
-    ClearFile : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-              -> (chooseFileIn t -> chooseFileOut t) -> LineCommand sx [] t
-    |||Print the file name
-    FileName : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-            -> LineCommand sx [] t
-
-  public export
   data Command : SnocList (VarType, String) -> List (VarType, String)
-              -> FileScriptType -> Type where
+              -> ScriptType -> FileScriptType -> Type where
   --- pattern space operation commands
     ||| Replace command
-    Replace : ReplaceCommand -> Command sx [] st
+    Replace : ReplaceCommand -> Command sx [] st io
     |||Execute function on the pattern space
-    Exec : (String -> String) -> Command sx [] st
+    Exec : (String -> String) -> Command sx [] st io
   --- read/write commands ---
     |||Print content of the pattern space to the result space
-    Print : Command sx [] st
+    Print : Command sx [] st io
   --- commands for hold spaces ---
     |||Copy contents of pattern space to a named hold space (local)
     CreateHold  : (holdSpace : String)
                 -> {t : Type} -> t
-                -> Command sx [(HoldSpace t, holdSpace)] st
+                -> Command sx [(HoldSpace t, holdSpace)] st io
     |||Append a newline and contents of pattern space to a named hold space
     HoldApp : (holdSpace : String)
             -> {t : Type} -> (t -> String -> t)
             -> {auto pos : (HoldSpace t, holdSpace) `Elem` sx}
-            -> Command sx [] st
+            -> Command sx [] st io
     |||Copy contents of a named hold space to pattern space
     FromHold  : (holdSpace : String)
               -> {t : Type} -> (String -> t -> String)
               -> {auto pos : (HoldSpace t, holdSpace) `Elem` sx}
-              -> Command sx [] st
+              -> Command sx [] st io
     |||Execute a function on a hold space contents
     ExecOnHold : (holdSpace : String)
               -> {t : Type} -> (t -> t)
               -> {auto pos : (HoldSpace t, holdSpace) `Elem` sx}
-              -> Command sx [] st
+              -> Command sx [] st io
   --- flow control commands ---
     ||| Create a routine
-    Routine : (label : String) -> Script sx st -> Command sx [(Label, label)] st
+    Routine : (label : String)
+            -> {st : ScriptType}
+            -> getScriptByType st sx io
+            -> Command sx [(Label st, label)] st io
     ||| Go to routine with named `label`
-    Call : (label : String) -> {auto pos : (Label, label) `Elem` sx}
-        -> Command sx [] st
+    Call : (label : String) -> {auto pos : (Label st, label) `Elem` sx}
+        -> Command sx [] st io
     -- ||| If then else contruction
-    IfThenElse : (String -> Bool) -> Script sx st -> Script sx st
-              -> Command sx [] st
+    IfThenElse : (String -> Bool)
+              -> {st : ScriptType}
+              -> getScriptByType st sx io -> getScriptByType st sx io
+              -> Command sx [] st io
     ||| Allows for executing code with value from a chosen holdspace.
     ||| This holdspace does not exist inside that scope.
     ||| For simplicity global definitions are not allowed in routines.
     WithHoldContent : (holdSpace : String)
                     -> {t : Type}
+                    -> {st : ScriptType}
                     -> {auto pos : (HoldSpace t, holdSpace) `Elem` sx}
-                    -> (t -> Script (withOut sx pos) Local)
-                    -> Command sx [] st
+                    -> (t -> getScriptByType st (dropElem sx pos) Local)
+                    -> Command sx [] st io
   --- other ---
     |||Quit
-    Quit : Command sx [] st -- q;Q
-
-  public export
-  data AnyCommand : SnocList (VarType, String) -> List (VarType, String)
-                  -> FileScriptType -> Type where
-    LC : LineCommand sx ys t -> AnyCommand sx ys t
-    NC : Command sx ys t     -> AnyCommand sx ys t
+    Quit : Command sx [] st io -- q;Q
+  --- line by line commands
+    |||Delete the contents of the pattern space and start a new cycle
+    Zap : Command sx [] LineByLine t
+    |||Delete the contents of the pattern space up to the `\n`
+    |||and start the new cycle without reading the next line.
+    |||If no `\n` in the pattern space treat as `Zap`.
+    ZapFstLine : Command sx [] LineByLine t
+    |||Append a newline and the next line from input to the pattern space
+    ReadApp : Command sx [] LineByLine t
+    |||Read the next line into the pattern space (deleting what was previously stored)
+    Put : Command sx [] LineByLine t
+    |||Print the line number
+    LineNumber : Command sx [] LineByLine t
+    |||Start new cycle
+    NewCycle : Command sx [] LineByLine t
+    |||Start reading from a new file
+    ReadFrom : {t : FileScriptType} -> (chooseFileOut t) -> Command sx [] LineByLine t
+    |||Queue next file to read
+    QueueRead : {t : FileScriptType} -> (chooseFileOut t) -> Command sx [] LineByLine t
+    --- other IO commands ---
+    |||Print content of the pattern space
+    PrintStd : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t} -> Command sx [] LineByLine t
+    ||| Append contents of the pattern space to a file
+    ||| which names depends on current file name - (path, name, extension)
+    WriteTo : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
+            -> (chooseFileIn t -> chooseFileOut t) -> Command sx [] LineByLine t
+    ||| Append contents of the pattern space up to `\n` to a file
+    ||| which names depends on current file name - (path, name, extension)
+    WriteLineTo : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
+                -> (chooseFileIn t -> chooseFileOut t) -> Command sx [] LineByLine t
+    ||| Delete file contents
+    ||| which names depends on current file name - (path, name, extension)
+    ClearFile : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
+              -> (chooseFileIn t -> chooseFileOut t) -> Command sx [] LineByLine t
+    |||Print the file name
+    FileName : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
+            -> Command sx [] LineByLine t
 
   public export
   data CommandWithAddress : SnocList (VarType, String)
                           -> List (VarType, String)
                           -> FileScriptType
                           -> Type where
-    (>)  : AnyCommand sx ys t -> CommandWithAddress sx ys t
-    (?>) : Address -> AnyCommand sx ys t -> CommandWithAddress sx [] t
+    (>)  : Command sx ys LineByLine t -> CommandWithAddress sx ys t
+    (?>) : Address -> Command sx ys LineByLine t -> CommandWithAddress sx [] t
     (?:) : Address -> FileScript sx t -> CommandWithAddress sx [] t
     --^ this allows to group multiple commands with the same address, but the
 
@@ -237,9 +218,7 @@ mutual
     (|*>) : FileScript sx Std -> ScriptCommand sx [] IO -- IO
     ||| Line by line processing for in program data
     (*>)  : List String -> FileScript sx Local -> ScriptCommand sx [] t
-    (|>)  : Command sx ys t -> ScriptCommand sx ys t
-    -- IfThenElse : (String -> Bool) -> Script sx -> Script sx -> ScriptCommand sx []
-    -- Routine : String -> Script sx -> ScriptCommand sx [(Label, label)]
+    (|>)  : Command sx ys Total t -> ScriptCommand sx ys t
 
   namespace Script
     public export
@@ -247,34 +226,7 @@ mutual
       Nil : Script sx t
       (::) : ScriptCommand sx ys t -> Script (sx <>< ys) t -> Script sx t
 
-  -- public export
-  -- data PureScript : Script sx t -> Type where
-  --   IsNil : PureScript []
-  --   IsConsFileScript : PureScript tail
-  --                   -> PureScript ((localFiles *> scr) :: tail)
-  --   IsConsCmd : PureScript tail
-  --           -> PureScript ((|> cmd) :: tail)
-  --   -- IsIfElse  : PureScript s1
-  --   --           -> PureScript s2
-  --   --           -> PureScript tail
-  --   --           -> PureScript ((IfThenElse f s1 s2) :: tail)
-  --   -- IsRoutine  : PureScript s1
-  --   --           -> PureScript tail
-  --   --           -> PureScript ((Routine label s1) :: tail)
-
---- smart constucturs ---
-namespace SmartConstructorsLineCommand
   public export
-  (?>) : Address -> LineCommand sx ys t -> CommandWithAddress sx [] t
-  addr ?> cmd = addr ?> (LC cmd)
-  public export
-  (>) : LineCommand sx ys t -> CommandWithAddress sx ys t
-  (>) cmd = > (LC cmd)
-
-namespace SmartConstructorsCommand
-  public export
-  (?>) : Address -> Command sx ys t -> CommandWithAddress sx [] t
-  addr ?> cmd = addr ?> (NC cmd)
-  public export
-  (>) : Command sx ys t -> CommandWithAddress sx ys t
-  (>) cmd = > (NC cmd)
+  getScriptByType : ScriptType -> SnocList (VarType, String) -> FileScriptType -> Type
+  getScriptByType Total = Script
+  getScriptByType LineByLine = FileScript
