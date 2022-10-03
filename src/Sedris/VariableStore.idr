@@ -14,6 +14,7 @@ data Weakening : Variables -> Variables -> Type where
   Weaken : (xs : List Variable) -> {auto 0 ford : sy = sx <>< xs}
     -> Weakening sx sy
 
+public export
 data Thinning : Variables -> Variables -> Type where
   Lin : Thinning [<] sx
   (.Keep) : Thinning sx sy -> Thinning (sx :< y) (sy :< y)
@@ -29,10 +30,12 @@ I,O : Bool
 I = True
 O = False
 
+export
 id : (sx : Variables) -> Thinning sx sx
 id [<] = [<]
 id (sx :< x) = (id sx).Keep
 
+export
 (.) : Thinning sy sz -> Thinning sx sy -> Thinning sx sz
 (.) tau [<]                     {sy = sy,        sz = sz,        sx = [<]      }
   = Lin
@@ -106,7 +109,7 @@ namespace Script
   thin [] y = []
   thin (cmd :: cmds) y = ?thin_rhs_1
 
-export
+public export
 interface VariableStore (Store : Variables -> FileScriptType -> Type) where
   --- adding variables
   holdSpace : (name : String) -> {t : Type} -> (value : t) -> Store sx st
@@ -134,7 +137,7 @@ interface VariableStore (Store : Variables -> FileScriptType -> Type) where
   empty : Store [<] st
 
 namespace LinkedListStore
-  export
+  public export
   data LinkedListStore : Variables -> FileScriptType -> Type where
     Empty : LinkedListStore [<] st
     HS : (name : String) -> {t : Type} -> (value : t) -> LinkedListStore sx st
@@ -191,7 +194,7 @@ namespace LinkedListStore
   execOnHoldSpace (There pos) (LB str name hs) f
     = LB str name (execOnHoldSpace pos hs f)
 
-  export
+  public export
   VariableStore LinkedListStore where
     getHoldSpace = LinkedListStore.getHoldSpace
     getRoutine = LinkedListStore.getRoutine

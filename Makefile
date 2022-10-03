@@ -11,7 +11,6 @@ install: build
 clean:
 	$(RM) -r build
 	$(RM) -r **/**/build
-	make -C tests clean
 	@find . -type f -name 'output' -exec rm -rf {} \;
 	@find . -type f -name '*.ttc' -exec rm -f {} \;
 	@find . -type f -name '*.ttm' -exec rm -f {} \;

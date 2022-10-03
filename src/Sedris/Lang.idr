@@ -200,8 +200,7 @@ mutual
                           -> FileScriptType
                           -> Type where
     (>)  : Command sx ys LineByLine t -> CommandWithAddress sx ys t
-    (?>) : Address -> Command sx ys LineByLine t -> CommandWithAddress sx [] t
-    (?:) : Address -> FileScript sx t -> CommandWithAddress sx [] t
+    (?>) : Address -> Command sx [] LineByLine t -> CommandWithAddress sx [] t
     --^ this allows to group multiple commands with the same address, but the
 
   ||| A file script is executed on each line of the file
