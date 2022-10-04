@@ -1,6 +1,7 @@
 module Sedris.VariableStore
 
 import Sedris.Lang
+import Data.Void
 
 public export
 Variable : Type
@@ -9,6 +10,35 @@ Variable = (VarType, String)
 public export
 Variables : Type
 Variables = SnocList Variable
+
+export
+extractNewVars : Command sx ys st io -> (vars : List Variable ** vars = ys)
+extractNewVars (Replace x) = ([] ** Refl)
+extractNewVars (Exec f) = ([] ** Refl)
+extractNewVars Print = ([] ** Refl)
+extractNewVars (CreateHold holdSpace {t} value)
+  = ([(HoldSpace t, holdSpace)] ** Refl)
+extractNewVars (HoldApp holdSpace f) = ([] ** Refl)
+extractNewVars (FromHold holdSpace f) = ([] ** Refl)
+extractNewVars (ExecOnHold holdSpace f) = ([] ** Refl)
+extractNewVars (Routine {st} label sc) = ([(Label st, label)] ** Refl)
+extractNewVars (Call label) = ([] ** Refl)
+extractNewVars (IfThenElse f x y) = ([] ** Refl)
+extractNewVars (WithHoldContent holdSpace f) = ([] ** Refl)
+extractNewVars Quit = ([] ** Refl)
+extractNewVars Zap = ([] ** Refl)
+extractNewVars ZapFstLine = ([] ** Refl)
+extractNewVars ReadApp = ([] ** Refl)
+extractNewVars Put = ([] ** Refl)
+extractNewVars LineNumber = ([] ** Refl)
+extractNewVars NewCycle = ([] ** Refl)
+extractNewVars (ReadFrom x) = ([] ** Refl)
+extractNewVars (QueueRead x) = ([] ** Refl)
+extractNewVars PrintStd = ([] ** Refl)
+extractNewVars (WriteTo f) = ([] ** Refl)
+extractNewVars (WriteLineTo f) = ([] ** Refl)
+extractNewVars (ClearFile f) = ([] ** Refl)
+extractNewVars FileName = ([] ** Refl)
 
 data Weakening : Variables -> Variables -> Type where
   Weaken : (xs : List Variable) -> {auto 0 ford : sy = sx <>< xs}
@@ -19,6 +49,25 @@ data Thinning : Variables -> Variables -> Type where
   Lin : Thinning [<] sx
   (.Keep) : Thinning sx sy -> Thinning (sx :< y) (sy :< y)
   (.Drop) : Thinning sx sy -> Thinning  sx       (sy :< y)
+
+0 uninhabited' : {sx, sy : Variables} -> {y : Variable}
+              -> Thinning (sx ++ (sy :< y)) sx -> Void
+uninhabited' {sx = _, sy = [<], y} tau.Keep = uninhabited' tau {sy = [<]}
+uninhabited' {sx = _, sy = [<], y} (tau.Drop {sy = sy', y = y'}) = uninhabited' tau {sy = [< y'],y, sx = sy'}
+uninhabited' {sx = _, sy = (sy :< x), y} (tau.Keep {sy = sy'}) =
+  uninhabited'  (replace {p = (\e => Thinning (e :< x) sy')} 
+                          (sym $ appendAssociative _ _ _)
+                          tau)
+                {sx = sy', sy = ([< y] ++ sy), y = x}
+uninhabited' {sx = _, sy = (sy :< x), y} (tau.Drop {sy = sy', y = y'}) =
+  uninhabited'  (replace {p = (\e => Thinning (e :< x :< y) sy')} 
+                          (sym $ appendAssociative _ _ _)
+                          tau)
+                {sx = sy', sy = ([< y'] ++ sy) :< x}
+
+export
+Uninhabited (Thinning (sx :< x) sx) where
+  uninhabited tau = absurdity (uninhabited' tau {sy = [<]})
 
 -- Smart constructors
 (:<) : Thinning sx sy -> (keep : Bool) ->
@@ -48,25 +97,17 @@ export
 (.) tau.Drop tau'.Drop          {sy = (sy :< y), sz = (sy :< y), sx = sx       }
   = (tau . (tau'.Drop)).Drop
 
-export
-dropElem : (sx : Variables)
-        -> (pos : x `Elem` sx)
-        -> Thinning (dropElem sx pos) sx
-dropElem (sx :< x) Here = (id sx).Drop
-dropElem (sx :< x) (There pos) = (dropElem sx pos).Keep
-
-dropLastAux : (ys : List Variable)
+keepLastAux : (ys : List Variable)
             -> Thinning sx sx'
-            -> Thinning sx (sx' <>< ys)
-dropLastAux [] tau = tau
-dropLastAux (y :: ys) tau = dropLastAux ys tau.Drop
+            -> Thinning (sx <>< ys) (sx' <>< ys)
+keepLastAux [] tau = tau
+keepLastAux (y :: ys) tau = keepLastAux ys tau.Keep
 
 export
-dropLast : (sx : Variables)
+keepLast : (sx : Variables)
         -> (ys : List Variable)
-        -> Thinning sx (sx <>< ys)
-dropLast sx ys = dropLastAux ys (id sx)
-
+        -> Thinning (sx <>< ys) (sx <>< ys)
+keepLast sx ys = keepLastAux ys (id sx)
 
 -- id is neutral, (.) associative, i.e. a category whose objects are
 -- Variables values and morphisms are thinnings
@@ -79,35 +120,101 @@ namespace Position
   thin (There pos) (tau.Keep) = There (pos `thin` tau)
   thin pos (tau .Drop) = There (pos `thin` tau)
 
-namespace Cmd
-  public export
-  thin : Command sx zs st io -> Thinning sx sy -> Command sy zs st io
-  -- thin (Replace x) y = Replace x
-  -- thin (Exec f) y = Exec f
-  -- thin Print y = ?thin_rhs_7
-  -- thin (CreateHold holdSpace x) y = CreateHold holdSpace x
-  -- thin (HoldApp holdSpace f {pos}) tau = HoldApp holdSpace f {pos = pos `thin` tau}
-  -- thin (FromHold holdSpace f) y = ?thin_rhs_10
-  -- thin (ExecOnHold holdSpace f) y = ?thin_rhs_11
-  -- thin (Routine label x) y = ?thin_rhs_12
-  -- thin (Call label) y = ?thin_rhs_13
-  -- thin (IfThenElse f x z) y = ?thin_rhs_14
-  -- thin (WithHoldContent holdSpace f) y = ?thin_rhs_15
-  -- thin Quit y = ?thin_rhs_16
+mutual
+  namespace Cmd
+    public export
+    thin : Command sx zs st io -> Thinning sx sy -> Command sy zs st io
+    thin (Replace x) tau = Replace x
+    thin (Exec f) tau = Exec f
+    thin Print tau = Print
+    thin (CreateHold hs x) tau = CreateHold hs x
+    thin (HoldApp hs f {pos}) tau = HoldApp hs f {pos = pos `thin` tau}
+    thin (FromHold hs f {pos}) tau = FromHold hs f {pos = pos `thin` tau}
+    thin (ExecOnHold hs f {pos}) tau = ExecOnHold hs f {pos = pos `thin` tau}
+    thin (Routine label r {st = Total}) tau = Routine label (r `thin` tau)
+    thin (Routine label r {st = LineByLine}) tau = Routine label (r `thin` tau)
+    thin (Call label {pos}) tau = Call label {pos = pos `thin` tau}
+    thin (IfThenElse f sc1 sc2 {st = Total}) tau =
+      IfThenElse f (sc1 `thin` tau) (sc2 `thin` tau)
+    thin (IfThenElse f sc1 sc2 {st = LineByLine}) tau =
+      IfThenElse f (sc1 `thin` tau) (sc2 `thin` tau)
+    thin (WithHoldContent holdSpace f {pos = pos} {st = Total}) tau =
+      WithHoldContent holdSpace (\v => (f v) `thin` tau) {pos = pos `thin` tau}
+    thin (WithHoldContent holdSpace f {pos = pos} {st = LineByLine}) tau =
+      WithHoldContent holdSpace (\v => (f v) `thin` tau) {pos = pos `thin` tau}
+    thin Quit tau = Quit
+    thin Zap tau = Zap
+    thin ZapFstLine tau = ZapFstLine
+    thin ReadApp tau = ReadApp
+    thin Put tau = Put
+    thin LineNumber tau = LineNumber
+    thin NewCycle tau = NewCycle
+    thin (ReadFrom fl) tau = ReadFrom fl
+    thin (QueueRead fl) tau = QueueRead fl
+    thin PrintStd tau = PrintStd
+    thin (WriteTo fl) tau = WriteTo fl
+    thin (WriteLineTo fl) tau = WriteLineTo fl
+    thin (ClearFile fl) tau = ClearFile fl
+    thin FileName tau = FileName
 
-namespace ScriptCmd
-  public export
-  thin : ScriptCommand sx zs ts -> Thinning sx sy -> ScriptCommand sy zs ts
-  thin (xs * x) y = ?thin_rhs_0
-  thin (|*> x) y = ?thin_rhs_2
-  thin (strs *> x) y = ?thin_rhs_3
-  thin (|> x) y = ?thin_rhs_4
+  namespace FileScript
+    public export
+    thin : FileScript xs io -> Thinning xs ys -> FileScript ys io
+    thin [] tau = []
+    thin ((> cmd) :: fsc) tau =
+      let (ys' ** Refl) := extractNewVars cmd
+      in ((> (cmd `thin` tau)) :: (fsc `thin` (keepLastAux ys' tau)))
+    thin ((addr ?> cmd) :: fsc) tau
+      = ((addr ?> (cmd `thin` tau)) :: (fsc `thin` tau))
 
-namespace Script
+  namespace Script
+    public export
+    thin : Script xs io -> Thinning xs ys -> Script ys io
+    thin [] tau = []
+    thin ((fl * fsc) :: cmds) tau
+      = ((fl * (fsc `thin` tau)) :: (cmds `thin` tau))
+    thin ((|*> fsc) :: cmds) tau
+      = ((|*> (fsc `thin` tau)) :: (cmds `thin` tau))
+    thin ((strs *> fsc) :: cmds) tau
+      = ((strs *> (fsc `thin` tau)) :: (cmds `thin` tau))
+    thin ((|> cmd) :: cmds) tau =
+      let (ys' ** Refl) := extractNewVars cmd
+      in ((|> (cmd `thin` tau)) :: (cmds `thin` (keepLastAux ys' tau)))
+
+namespace TailThinning
   public export
-  thin : Script xs ts -> Thinning xs ys -> Script ys ts
-  thin [] y = []
-  thin (cmd :: cmds) y = ?thin_rhs_1
+  data IsTailThinning : Thinning sx sy -> Type where
+    IsId    : {tau : Thinning sx sx} -> IsTailThinning tau
+    IsDrop : IsTailThinning tau -> IsTailThinning (tau.Drop)
+
+  public export
+  TailThinning : Variables -> Variables -> Type
+  TailThinning sx sy = Thinning sx sy `DPair` IsTailThinning
+
+  export
+  thin : Script xs io -> TailThinning xs ys -> Script ys io
+  thin sc (tau ** _) = thin sc tau
+
+  export
+  id : (sx : Variables) -> TailThinning sx sx
+  id sx = ((id sx) ** IsId)
+
+  dropLastAux : (ys : List Variable)
+            -> TailThinning sx sx'
+            -> TailThinning sx (sx' <>< ys)
+  dropLastAux [] tau = tau
+  dropLastAux (y :: ys) (tau ** isTail) =
+    dropLastAux ys ((tau.Drop) ** (IsDrop isTail))
+
+  export
+  dropLast : (sx : Variables)
+          -> (ys : List Variable)
+          -> TailThinning sx (sx <>< ys)
+  dropLast sx ys = dropLastAux ys (id sx)
+
+  export
+  (.) : TailThinning sy sz -> TailThinning sx sy -> TailThinning sx sz
+
 
 public export
 interface VariableStore (Store : Variables -> FileScriptType -> Type) where
@@ -132,7 +239,7 @@ interface VariableStore (Store : Variables -> FileScriptType -> Type) where
                   -> Store sx st -> (t -> t)
                   -> Store sx st
   --- thinning
-  thin : Store sy st -> Thinning sx sy -> Store sx st
+  thin : Store sy st -> TailThinning sx sy -> Store sx st
   --- empty store
   empty : Store [<] st
 
@@ -180,7 +287,7 @@ namespace LinkedListStore
     = let Evidence sy (sc, tau) := getRoutineAux sx pos store
       in case st of
           Total => thin sc tau
-          LineByLine => ?ncieow_1 --thin sc (dropLast sy zs)
+          LineByLine => thin sc tau
 
   execOnHoldSpace : {0 name : String} -> {0 t : Type}
                   -> {0 xs : SnocList (VarType, String)}
@@ -194,92 +301,28 @@ namespace LinkedListStore
   execOnHoldSpace (There pos) (LB str name hs) f
     = LB str name (execOnHoldSpace pos hs f)
 
+  dropIsTail : {tau : Thinning sx sy} -> IsTailThinning tau.Drop
+            -> IsTailThinning tau
+  dropIsTail {tau} IsId           = absurd tau
+  dropIsTail      (IsDrop isTail) = isTail
+
+  thin' : {0 sx,sy : Variables} -> LinkedListStore sy st -> (tau : Thinning sx sy)
+        -> IsTailThinning tau -> LinkedListStore sx st
+  thin' _ [<] _ = Empty
+  thin' (HS name v store) tau.Keep IsId   = HS name v (thin' store tau IsId)
+  thin' (LB name r store) tau.Keep IsId   = LB name r (thin' store tau IsId)
+  thin' (HS name v store) tau.Drop isTail = thin' store tau (dropIsTail isTail)
+  thin' (LB name r store) tau.Drop isTail = thin' store tau (dropIsTail isTail)
+
+  thin : LinkedListStore sy st -> TailThinning sx sy -> LinkedListStore sx st
+  thin store (tau ** isTail) = thin' store tau isTail
+
   public export
   VariableStore LinkedListStore where
     getHoldSpace = LinkedListStore.getHoldSpace
     getRoutine = LinkedListStore.getRoutine
     execOnHoldSpace = LinkedListStore.execOnHoldSpace
     empty = Empty
-    thin = ?ncioerno
+    thin = LinkedListStore.thin
     holdSpace = HS
     label = LB
-
-{-
-  length : Store sx st -> Nat
-  0 lengthPrf : {0 sx : Variables} -> (store : Store sx st)
-              -> (length store = Prelude.SnocList.length sx)
-
-  withOut : {0 xs : Variables} -> Store xs st -> (pos : x `Elem` xs)
-          -> ( Store (Sedris.Lang.withOut xs pos) st
-             , Store (Sedris.Lang.withOut xs pos) st -> Store xs st)
-  empty : Store [<] st
-  trim  : Store (vars <>< add) st -> (l : Nat)
-        -> { auto 0 ford : l = Prelude.SnocList.length vars} -> Store vars st
-  length : LinkedListStore sx st -> Nat
-  length Empty = 0
-  length (HS _ _ s) = S (length s)
-  length (LB _ _ s) = S (length s)
-  length (FL _ _ s) = S (length s)
-
-  0 lengthPrf : (hs : LinkedListStore sx st) -> (length hs = length sx)
-  lengthPrf Empty = Refl
-  lengthPrf (HS _ _ s) = cong S (lengthPrf s)
-  lengthPrf (LB _ _ s) = cong S (lengthPrf s)
-  lengthPrf (FL _ _ s) = cong S (lengthPrf s)
-
-  withOut : {0 xs : SnocList (VarType, String)}
-            -> LinkedListStore xs st
-            -> (pos : x `Elem` xs)
-            ->  ( LinkedListStore (withOut xs pos) st
-                , LinkedListStore (withOut xs pos) st -> LinkedListStore xs st)
-  withOut Empty Here impossible
-  withOut Empty (There pos) impossible
-  withOut (HS name value store) Here = (store, (HS name value))
-  withOut (HS name value store) (There pos)
-    = let (store', f) := withOut store pos
-      in  ( HS name value store'
-          , (\case (HS name value store) => HS name value (f store)))
-  withOut (LB name sc store) Here = (store, (LB name sc))
-  withOut (LB name sc store) (There pos) = ?newkn
-    -- = let (store', f) := withOut store pos
-    --   in  ( LB name sc store'
-    --       , (\case (LB name sc store) => LB name sc (f store)))
-  withOut (FL name sc store) Here = (store, (FL name sc))
-  withOut (FL name sc store) (There pos) = ?ncdjkn
-    -- = let (store', f) := withOut store pos
-    --   in  ( FL name sc store'
-    --       , (\case (FL name sc store) => FL name sc (f store)))
-
-  export
-  VariableStore LinkedListStore where
-    getHoldSpace = LinkedListStore.getHoldSpace
-    getRoutine = LinkedListStore.getRoutine
-    length = LinkedListStore.length
-    lengthPrf = LinkedListStore.lengthPrf
-    execOnHoldSpace = LinkedListStore.execOnHoldSpace
-    withOut = LinkedListStore.withOut
-    empty = Empty
-    trim = ?ncioerno
-    holdSpace = HS
-    label = LB
-    labelFileScript = FL
-{-
-trimHoldSpaces : {0 vars : SnocList (VarType, String)}
-              -> {0 add : List (VarType, String)}
-              -> {0 vars': SnocList (VarType, String)}
-              -> {auto 0 ford' : vars <>< add = vars'}
-              -> HoldSpacesState vars' st -> (l : Nat)
-              -> { auto 0 ford : l = length vars}
-              -> HoldSpacesState vars st
-trimHoldSpaces hs 0 {ford} {st}
-  = replace {p = (\x => HoldSpacesState x st)} ?nei Empty
-trimHoldSpaces {vars} hs (S k) {ford = ford} {ford' = ford'}
-  = let 0 nonEmpty := positiveLengthImpNonEmpty vars (sym ford)
-    in ?bfeuiw
-
-trim : VMState (vars <>< add) st
-    -> (l : Nat)
-    -> { auto 0 ford : l = length vars} -> VMState vars st
-trim vm l {vars} {add} = lift (\hs => trimHoldSpaces {vars} {add} hs l) vm
--}
--}

@@ -55,25 +55,23 @@ data NeedsIO : FileScriptType -> Type where
 ||| Address is a condition for the command.
 ||| Only for the lines that satisfy the address, the command will be executed.
 public export
-data Address
-  = ||| Line number
-    Line Nat
-  | ||| Line numbers
-    Lines (List Nat)
-  |  ||| Range of lines
-    LineRange Nat Nat
-  | ||| If the line as a whole matches the regex
-    RegexWhole (TyRE a)
-  | ||| If the line's prefix matches the regex
-    RegexPrefix (TyRE a)
-  | ||| If there exists a substring in the line that matches the regex
-    RegexExists (TyRE a)
-  | ||| Condition negation
-    Not Address
-  | ||| Last line of the text
-    LastLine
-  | ||| When we start working with a new file
-    OnNewFile
+data Address : Type where
+    ||| Line number
+    Line : Nat -> Address
+    ||| Line numbers
+    Lines : (List Nat) -> Address
+    ||| Range of lines
+    LineRange : Nat -> Nat -> Address
+    ||| If the line as a whole matches the regex
+    RegexWhole : TyRE a -> Address
+    ||| If the line's prefix matches the regex
+    RegexPrefix : (re : TyRE a) -> {auto 0 _ : IsConsuming re} -> Address
+    ||| If there exists a substring in the line that matches the regex
+    RegexExists : (re : TyRE a) -> {auto 0 _ : IsConsuming re}-> Address
+    ||| Condition negation
+    Not : Address -> Address
+    ||| Last line of the text
+    LastLine : Address
 
 public export
 data ReplaceCommand : Type where
@@ -151,7 +149,7 @@ mutual
                     -> {t : Type}
                     -> {st : ScriptType}
                     -> {auto pos : (HoldSpace t, holdSpace) `Elem` sx}
-                    -> (t -> getScriptByType st (dropElem sx pos) Local)
+                    -> (t -> getScriptByType st sx Local)
                     -> Command sx [] st io
   --- other ---
     |||Quit
