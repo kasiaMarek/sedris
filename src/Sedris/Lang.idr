@@ -65,7 +65,7 @@ data Address : Type where
     ||| If the line as a whole matches the regex
     RegexWhole : TyRE a -> Address
     ||| If the line's prefix matches the regex
-    RegexPrefix : (re : TyRE a) -> {auto 0 _ : IsConsuming re} -> Address
+    RegexPrefix : (re : TyRE a) -> Address
     ||| If there exists a substring in the line that matches the regex
     RegexExists : (re : TyRE a) -> {auto 0 _ : IsConsuming re}-> Address
     ||| Condition negation
@@ -77,24 +77,18 @@ public export
 data ReplaceCommand : Type where
   ||| Replace all `pattern` with `substitution`
   All : (pattern : String) -> (substitution : String) -> ReplaceCommand
-  ||| String substitusions for a list of: pattern, destination.
-  AllMulti : List (String, String) -> ReplaceCommand
-  ||| String substitusions for a list of patterns and vector of destinations.
-  AllMulti' : (xs : List String) -> (Vect (length xs) String) -> ReplaceCommand
   ||| String substitusion for the line prefix.
   Prefix : String -> String -> ReplaceCommand
   ||| String substitusion for the line suffix.
   Suffix : String -> String -> ReplaceCommand
   ||| Regex replace for all matches.
-  AllRe : (TyRE a) -> (a -> String) -> ReplaceCommand
+  AllRe : (re : TyRE a) -> {auto 0 consuming : IsConsuming re}
+        -> (a -> String) -> ReplaceCommand
   ||| Regex replace for a prefix match.
-  PrefixRe : (TyRE a) -> (a -> String) -> ReplaceCommand
-  ||| Regex replace for a suffix match.
-  SuffixRe : (TyRE a) -> (a -> String) -> ReplaceCommand -- in tyre we need to revert the regex and the string to do a prefix match
-  ||| Character substitusions for a list of: pattern, destination.
-  CharSubst : List (Char, Char) -> ReplaceCommand
+  PrefixRe : (re : TyRE a) -> {auto 0 consuming : IsConsuming re}
+          -> (a -> String) -> ReplaceCommand
   ||| Character substitusions for a list of patterns and vector of destinations.
-  CharSubst' : (xs : List Char) -> (Vect (length xs) Char) -> ReplaceCommand
+  CharSubst : List (Char, Char) -> ReplaceCommand
 
 mutual
   public export

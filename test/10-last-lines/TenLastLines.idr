@@ -1,6 +1,6 @@
 import Sedris.Lang
 
-tenLastLines : String -> Script [<]
+tenLastLines : String -> Script [<] IO
 tenLastLines fileName
   = [ |> CreateHold "lines" {t = List String} []
     , (fileName ::: []) *

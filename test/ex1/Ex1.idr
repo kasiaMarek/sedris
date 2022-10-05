@@ -1,10 +1,10 @@
 import Sedris.Lang
 
-Ex1 : Script [<]
+Ex1 : Script [<] IO
 Ex1 =
   [ ("filename.txt" ::: []) *
     [ > Routine "whatnot"
-        [ |> Replace (All "foo" "bar")]
+        [ > Replace (All "foo" "bar")]
     , Line 3 ?> Call "whatnot"
     , > Call "whatnot"
     ]

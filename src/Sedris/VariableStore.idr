@@ -184,7 +184,7 @@ mutual
 namespace TailThinning
   public export
   data IsTailThinning : Thinning sx sy -> Type where
-    IsId    : {tau : Thinning sx sx} -> IsTailThinning tau
+    IsId   : {tau : Thinning sx sx} -> IsTailThinning tau
     IsDrop : IsTailThinning tau -> IsTailThinning (tau.Drop)
 
   public export
@@ -214,7 +214,13 @@ namespace TailThinning
 
   export
   (.) : TailThinning sy sz -> TailThinning sx sy -> TailThinning sx sz
-
+  (.) (_ ** IsId)                   tau'                          = tau'
+  (.) (tau.Drop ** IsId)            (tau' ** isTail')             = absurd tau
+  (.) tau@(_.Drop ** (IsDrop _))    (_ ** IsId)                   = tau
+  (.) (tau.Drop ** (IsDrop isTail)) (tau'.Drop ** IsId)           = absurd tau'
+  (.) (tau.Drop ** (IsDrop isTail)) (tau'.Drop ** IsDrop isTail') =
+    let (tau'' ** isTail'') := (tau ** isTail) . (tau'.Drop ** IsDrop isTail')
+    in (tau''.Drop ** IsDrop isTail'')
 
 public export
 interface VariableStore (Store : Variables -> FileScriptType -> Type) where
@@ -303,14 +309,13 @@ namespace LinkedListStore
 
   dropIsTail : {tau : Thinning sx sy} -> IsTailThinning tau.Drop
             -> IsTailThinning tau
-  dropIsTail {tau} IsId           = absurd tau
-  dropIsTail      (IsDrop isTail) = isTail
+  dropIsTail IsId            {tau} = absurd tau
+  dropIsTail (IsDrop isTail)       = isTail
 
   thin' : {0 sx,sy : Variables} -> LinkedListStore sy st -> (tau : Thinning sx sy)
         -> IsTailThinning tau -> LinkedListStore sx st
-  thin' _ [<] _ = Empty
-  thin' (HS name v store) tau.Keep IsId   = HS name v (thin' store tau IsId)
-  thin' (LB name r store) tau.Keep IsId   = LB name r (thin' store tau IsId)
+  thin' _                 [<]      _      = Empty
+  thin' store             tau.Keep IsId   = store
   thin' (HS name v store) tau.Drop isTail = thin' store tau (dropIsTail isTail)
   thin' (LB name r store) tau.Drop isTail = thin' store tau (dropIsTail isTail)
 

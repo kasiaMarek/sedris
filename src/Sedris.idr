@@ -65,7 +65,7 @@ record LineInfo where
   isLastLine : Bool
 
 from : LineInfo -> String -> List String -> LineInfo
-from (MkLineInfo _ lineNumber _) name []        
+from (MkLineInfo _ lineNumber _) name []
   = MkLineInfo name (S lineNumber) True
 from (MkLineInfo _ lineNumber _) name (x :: xs)
   = MkLineInfo name (S lineNumber) False
@@ -78,10 +78,7 @@ addrCheck (Line n)         (MkLineInfo _ lineNum _)  = (n == lineNum)
 addrCheck (Lines ns)       (MkLineInfo _ lineNum _)  = isJust $ find (== lineNum) ns
 addrCheck (LineRange s l)  (MkLineInfo _ lineNum _)  = lineNum < l && lineNum >= s
 addrCheck (RegexWhole re)  (MkLineInfo line _ _)     = match re line
-addrCheck (RegexPrefix re) (MkLineInfo line _ _)     =
-  case asDisjointMatches re line True of
-    (Suffix _)   => False
-    (Cons p _ _) => p == []
+addrCheck (RegexPrefix re) (MkLineInfo line _ _)     = isJust $ parsePrefix re line
 addrCheck (RegexExists re) (MkLineInfo line _ _)     =
   case asDisjointMatches re line True of
     (Suffix _)   => False
@@ -250,12 +247,12 @@ mutual
       interpretFS curr full (lines ++ lns) vm li
 
   interpretFS :  {sx : Variables}
-                          -> (curr : FileScripts sx sy Local)
-                          -> (full : FileScript sy Local)
-                          -> List String
-                          -> VMState sx Local
-                          -> LineInfo
-                          -> SnocList String
+              -> (curr : FileScripts sx sy Local)
+              -> (full : FileScript sy Local)
+              -> List String
+              -> VMState sx Local
+              -> LineInfo
+              -> SnocList String
   interpretFS (Just [] tau sc) full [] vm _
     = interpretS sc (lift (\s => thin s tau) vm)
   interpretFS (Just [] tau sc) full (l :: ln) vm li
@@ -293,11 +290,11 @@ mutual
 
   export
   interpretCmd : {sx : Variables}
-                      -> {ys : List Variable}
-                      -> (cmd : Command sx ys Total Local)
-                      -> (sc : Scripts (sx <>< ys) Local)
-                      -> VMState sx Local
-                      -> SnocList String
+              -> {ys : List Variable}
+              -> (cmd : Command sx ys Total Local)
+              -> (sc : Scripts (sx <>< ys) Local)
+              -> VMState sx Local
+              -> SnocList String
   interpretCmd cmd sc vm {sx} with (isSimpleCommand cmd)
     interpretCmd cmd sc vm | (Left prf)
       = interpretS sc (execSimpleCommand cmd vm)

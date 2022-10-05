@@ -2,7 +2,7 @@ import Sedris.Lang
 
 import Data.String
 
-replacesFromCSV : String -> List1 String -> Script [<]
+replacesFromCSV : String -> List1 String -> Script [<] IO
 replacesFromCSV source files =
   [ |> CreateHold "map" (the (List (String, String)) [])
   , (source ::: []) *
@@ -12,7 +12,7 @@ replacesFromCSV source files =
   , files *
     [ Line 1 ?> ClearFile outFile
     , > WithHoldContent "map"
-                        (\replaces => [ |> Replace (AllMulti replaces)])
+                        (\replaces => [ > Replace (AllMulti replaces)])
     , > WriteTo outFile
     ]
   ] where

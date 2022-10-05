@@ -1,6 +1,6 @@
 import Sedris.Lang
 
-wordCount : String -> Script [<]
+wordCount : String -> Script [<] IO
 wordCount fileName
   = [ |> CreateHold "count" Z
     , (fileName ::: []) *
