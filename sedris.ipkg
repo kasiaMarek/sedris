@@ -8,6 +8,8 @@ depends
 
 modules 
   = Sedris.Lang
-  , Sedris.Replace
+  , Sedris.Thinnings
   , Sedris.VariableStore
+  , Sedris.Replace
+  , Sedris.Interpret
   , Sedris

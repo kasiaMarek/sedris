@@ -5,6 +5,8 @@ import public Data.SnocList
 import public Data.SnocList.Elem
 import public Data.DPair
 
+%default total
+
 prefix  1 |>,>
 infix   1 ?>,?:
 infix   2 *,*>
@@ -52,6 +54,14 @@ data NeedsIO : FileScriptType -> Type where
   IsIO  : NeedsIO IO
   IsStd : NeedsIO Std
 
+public export
+Variable : Type
+Variable = (VarType, String)
+
+public export
+Variables : Type
+Variables = SnocList Variable
+
 ||| Address is a condition for the command.
 ||| Only for the lines that satisfy the address, the command will be executed.
 public export
@@ -92,7 +102,7 @@ data ReplaceCommand : Type where
 
 mutual
   public export
-  data Command : SnocList (VarType, String) -> List (VarType, String)
+  data Command : Variables -> List Variable
               -> ScriptType -> FileScriptType -> Type where
   --- pattern space operation commands
     ||| Replace command
@@ -187,8 +197,8 @@ mutual
             -> Command sx [] LineByLine t
 
   public export
-  data CommandWithAddress : SnocList (VarType, String)
-                          -> List (VarType, String)
+  data CommandWithAddress : Variables
+                          -> List Variable
                           -> FileScriptType
                           -> Type where
     (>)  : Command sx ys LineByLine t -> CommandWithAddress sx ys t
@@ -197,13 +207,13 @@ mutual
 
   ||| A file script is executed on each line of the file
   public export
-  data FileScript : SnocList (VarType, String) -> FileScriptType -> Type where
+  data FileScript : Variables -> FileScriptType -> Type where
     Nil : FileScript sx t
     (::) : CommandWithAddress sx ys t -> FileScript (sx <>< ys) t
         -> FileScript sx t
 
   public export
-  data ScriptCommand : SnocList (VarType, String) -> List (VarType, String)
+  data ScriptCommand : Variables -> List Variable
                     -> FileScriptType -> Type where
     (*)   : List1 String -> FileScript sx IO -> ScriptCommand sx [] IO -- IO
     (|*>) : FileScript sx Std -> ScriptCommand sx [] IO -- IO
@@ -213,11 +223,11 @@ mutual
 
   namespace Script
     public export
-    data Script : SnocList (VarType, String) -> FileScriptType -> Type where
+    data Script : Variables -> FileScriptType -> Type where
       Nil : Script sx t
       (::) : ScriptCommand sx ys t -> Script (sx <>< ys) t -> Script sx t
 
   public export
-  getScriptByType : ScriptType -> SnocList (VarType, String) -> FileScriptType -> Type
+  getScriptByType : ScriptType -> Variables -> FileScriptType -> Type
   getScriptByType Total = Script
   getScriptByType LineByLine = FileScript
