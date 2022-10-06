@@ -11,8 +11,10 @@ replacesFromCSV source files =
                               in acc ++ map (\x => (head, x)) xs)]
   , files *
     [ Line 1 ?> ClearFile outFile
-    , > WithHoldContent "map"
-                        (\replaces => [ > Replace (AllMulti replaces)])
+    , > WithHoldContent "map" {t = List (String, String)}
+          (foldr  (\el,acc =>
+                    (> Replace (All (Builtin.fst el) (Builtin.snd el))) :: acc)
+                  [])
     , > WriteTo outFile
     ]
   ] where

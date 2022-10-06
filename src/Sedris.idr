@@ -2,7 +2,6 @@ module Sedris
 
 import public Sedris.Lang
 import public Sedris.Replace
-import public Sedris.Extra
 import public Sedris.VariableStore
 import public Data.Regex
 

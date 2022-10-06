@@ -8,6 +8,12 @@ build:
 install: build
 	${IDRIS2} --install sedris.ipkg
 
+build-test:
+	make -C test testbin IDRIS2=${IDRIS2} IDRIS2_PATH=${TYRE}
+
+test: install build-test
+	make -C test test IDRIS2=${IDRIS2} IDRIS2_PATH=${TYRE} only=$(only)
+
 clean:
 	$(RM) -r build
 	$(RM) -r **/**/build

@@ -1,7 +1,0 @@
-package sedris-test
-
-depends
-  = sedris
-  , tyre
-  , collie
-  , contrib
