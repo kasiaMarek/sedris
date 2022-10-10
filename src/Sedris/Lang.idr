@@ -45,9 +45,14 @@ chooseFileOut IO    = IOFile
 chooseFileOut Std   = IOFile
 
 public export
+data MatchesOrLocal : FileScriptType -> FileScriptType -> Type where
+  Matches : MatchesOrLocal io io
+  IsLocal : MatchesOrLocal Local io
+
+public export
 data VarType
   = HoldSpace Type
-  | Label ScriptType
+  | Label ScriptType FileScriptType
 
 public export
 data NeedsIO : FileScriptType -> Type where
@@ -136,10 +141,17 @@ mutual
     ||| Create a routine
     Routine : (label : String)
             -> {st : ScriptType}
-            -> getScriptByType st sx io
-            -> Command sx [(Label st, label)] st io
+            -> {io : FileScriptType}
+            -> {default io io' : FileScriptType}
+            -> {auto mol : MatchesOrLocal io' io}
+            -> getScriptByType st sx io'
+            -> Command sx [(Label st io', label)] st io
     ||| Go to routine with named `label`
-    Call : (label : String) -> {auto pos : (Label st, label) `Elem` sx}
+    Call : (label : String)
+        -> {io : FileScriptType}
+        -> {default io io' : FileScriptType}
+        -> {auto mol : MatchesOrLocal io' io}
+        -> {auto pos : (Label st io', label) `Elem` sx}
         -> Command sx [] st io
     -- ||| If then else contruction
     IfThenElse : (String -> Bool)
@@ -174,9 +186,11 @@ mutual
     |||Start new cycle
     NewCycle : Command sx [] LineByLine t
     |||Start reading from a new file
-    ReadFrom : {t : FileScriptType} -> (chooseFileOut t) -> Command sx [] LineByLine t
+    ReadFrom : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
+            -> (chooseFileOut t) -> Command sx [] LineByLine t
     |||Queue next file to read
-    QueueRead : {t : FileScriptType} -> (chooseFileOut t) -> Command sx [] LineByLine t
+    QueueRead : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
+              -> (chooseFileOut t) -> Command sx [] LineByLine t
     --- other IO commands ---
     |||Print content of the pattern space
     PrintStd : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t} -> Command sx [] LineByLine t

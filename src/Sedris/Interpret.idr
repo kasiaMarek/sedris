@@ -8,24 +8,29 @@ import Sedris.VariableStore
 import public Data.Regex
 import Data.DPair
 
-record VMState (sx : Variables) (io : FileScriptType) where
+public export
+Result : FileScriptType -> Type
+Result Local  = SnocList String
+Result _      = IO (Either String (SnocList String))
+
+record VMState (sx : Variables) where
   constructor MkVMState
   patternSpace : String
   resultSpace : SnocList String
-  store : LinkedListStore sx io
+  store : LinkedListStore sx
 
 export
-init : String -> VMState [<] st
+init : String -> VMState [<]
 init str = MkVMState str [<] empty
 
-lift : (LinkedListStore sx io -> LinkedListStore sx' io')
-    -> (VMState sx io -> VMState sx' io')
+lift : (LinkedListStore sx -> LinkedListStore sx')
+    -> (VMState sx -> VMState sx')
 lift f (MkVMState patternSpace resultSpace store)
   = MkVMState { patternSpace
               , resultSpace
               , store = f store }
 
-put : String -> VMState sx io -> VMState sx io
+put : String -> VMState sx -> VMState sx
 put str (MkVMState patternSpace resultSpace store)
   = MkVMState { patternSpace = str
               , resultSpace
@@ -95,7 +100,7 @@ data SimpleCommand : Command sx ys st io -> Type where
     IsHoldApp : SimpleCommand (HoldApp name {pos} f)
     IsFromHold : SimpleCommand (FromHold name f {pos})
     IsExecOnHold : SimpleCommand (ExecOnHold name f {pos})
-    IsRoutine : SimpleCommand (Routine name routine)
+    IsRoutine : SimpleCommand (Routine name routine {mol} {io'})
     IsZap : SimpleCommand (Zap)
     IsZapFstLine : SimpleCommand (ZapFstLine)
 
@@ -127,9 +132,9 @@ isSimpleCommand (WriteLineTo f) = Right (\case _ impossible)
 isSimpleCommand (ClearFile f) = Right (\case _ impossible)
 isSimpleCommand FileName = Right (\case _ impossible)
 
-execSimpleCommand : (cmd : Command sx ys st Local) -> VMState sx Local
+execSimpleCommand : (cmd : Command sx ys st io) -> VMState sx
                   -> {auto 0 prf : SimpleCommand cmd}
-                  -> VMState (sx <>< ys) Local
+                  -> VMState (sx <>< ys)
 execSimpleCommand (Replace replace) {prf = IsReplace}
                   (MkVMState patternSpace resultSpace store)
   = MkVMState { patternSpace = performReplace patternSpace replace
@@ -186,14 +191,15 @@ mutual
   interpretFSCmd : {sx : Variables}
                 -> {ys : List Variable}
                 -> {0 sy : Variables}
-                -> (cmd : Command sx ys LineByLine Local)
-                -> (curr : FileScripts (sx <>< ys) sy Local)
-                -> (full : FileScript sy Local)
+                -> {io : FileScriptType}
+                -> (cmd : Command sx ys LineByLine io)
+                -> (curr : FileScripts (sx <>< ys) sy io)
+                -> (full : FileScript sy io)
                 -> List String
-                -> VMState sx Local
+                -> VMState sx
                 -> LineInfo
-                -> SnocList String
-  interpretFSCmd cmd curr full lines vm li with (isSimpleCommand cmd)
+                -> Result io
+  interpretFSCmd cmd curr full lines vm li {io} with (isSimpleCommand cmd)
     interpretFSCmd cmd curr full lines vm li | Left prf =
       interpretFS curr full lines (execSimpleCommand cmd vm) li
     interpretFSCmd (Replace _)      _ _ _ _ _ | Right f = absurd (f IsReplace)
@@ -206,17 +212,23 @@ mutual
     interpretFSCmd (Routine _ _)    _ _ _ _ _ | Right f = absurd (f IsRoutine)
     interpretFSCmd Zap              _ _ _ _ _ | Right f = absurd (f IsZap)
     interpretFSCmd ZapFstLine       _ _ _ _ _ | Right f = absurd (f IsZapFstLine)
-    interpretFSCmd Quit curr full lines vm li | _ = vm.resultSpace
+    interpretFSCmd Quit curr full lines vm li {io = Local} | _ = vm.resultSpace
+    interpretFSCmd Quit curr full lines vm li {io = IO}    | _ = pure $ Right $ vm.resultSpace
+    interpretFSCmd Quit curr full lines vm li {io = Std}   | _ = pure $ Right $ vm.resultSpace
     interpretFSCmd (IfThenElse f sc1 sc2) curr full lines vm li | _ =
       if f vm.patternSpace
       then interpretFS (Then sc1 id curr) full lines vm li
       else interpretFS (Then sc2 id curr) full lines vm li
-    interpretFSCmd (Call _ {pos}) curr full lines vm li | _ =
+    interpretFSCmd (Call _ {pos} {mol}) curr full lines vm li | _ =
       let r := getRoutine sx pos vm.store
-      in interpretFS (Then r id curr) full lines vm li
+      in case mol of
+          Matches => interpretFS (Then r id curr) full lines vm li
+          IsLocal => interpretFS  (Then (liftFileScript r) id curr)
+                                  full lines vm li
     interpretFSCmd (WithHoldContent _ f {pos}) curr full lines vm li | _
-      = interpretFS (Then (f $ getHoldSpace pos vm.store) id curr)
-                    full lines vm li
+      = interpretFS
+          (Then (liftFileScript $ f $ getHoldSpace pos vm.store) id curr)
+          full lines vm li
     interpretFSCmd ReadApp curr full [] vm li | _ =
       let (sy ** (Refl, tau, sc)) = getScript curr
       in interpretS sc (lift (\s => weaken s tau) vm)
@@ -242,18 +254,24 @@ mutual
           (l :: ln) =>
             interpretFS (Just full id sc) full ln
               (put l (lift (\s => weaken s tau) vm)) (from li l ln)
-    interpretFSCmd (ReadFrom lns) curr full lines vm li | _ =
-      interpretFS curr full lns vm li
-    interpretFSCmd (QueueRead lns) curr full lines vm li | _ =
-      interpretFS curr full (lines ++ lns) vm li
+    interpretFSCmd (ReadFrom lns) curr full lines vm li | _ = ?nceko
+      --interpretFS curr full lns vm li
+    interpretFSCmd (QueueRead lns) curr full lines vm li | _ = ?cwn
+      --interpretFS curr full (lines ++ lns) vm li
+    interpretFSCmd PrintStd curr full lines vm li | _ = ?what
+    interpretFSCmd (WriteTo _) curr full lines vm li | _ = ?what_1
+    interpretFSCmd (WriteLineTo _) curr full lines vm li | _ = ?what_2
+    interpretFSCmd (ClearFile _) curr full lines vm li | _ = ?what_3
+    interpretFSCmd FileName curr full lines vm li | _ = ?what_4
 
   interpretFS :  {sx : Variables}
-              -> (curr : FileScripts sx sy Local)
-              -> (full : FileScript sy Local)
+              -> {io : FileScriptType}
+              -> (curr : FileScripts sx sy io)
+              -> (full : FileScript sy io)
               -> List String
-              -> VMState sx Local
+              -> VMState sx
               -> LineInfo
-              -> SnocList String
+              -> Result io
   interpretFS (Just [] tau sc) full [] vm _
     = interpretS sc (lift (\s => weaken s tau) vm)
   interpretFS (Just [] tau sc) full (l :: ln) vm li
@@ -292,10 +310,11 @@ mutual
   export
   interpretCmd : {sx : Variables}
               -> {ys : List Variable}
-              -> (cmd : Command sx ys Total Local)
-              -> (sc : Scripts (sx <>< ys) Local)
-              -> VMState sx Local
-              -> SnocList String
+              -> {io : FileScriptType}
+              -> (cmd : Command sx ys Total io)
+              -> (sc : Scripts (sx <>< ys) io)
+              -> VMState sx
+              -> Result io
   interpretCmd cmd sc vm {sx} with (isSimpleCommand cmd)
     interpretCmd cmd sc vm | (Left prf)
       = interpretS sc (execSimpleCommand cmd vm)
@@ -307,33 +326,45 @@ mutual
     interpretCmd (HoldApp _ _) _ _    | (Right f) = absurd (f IsHoldApp)
     interpretCmd (FromHold _ _) _ _   | (Right f) = absurd (f IsFromHold)
     interpretCmd (ExecOnHold _ _) _ _ | (Right f) = absurd (f IsExecOnHold)
-    interpretCmd Quit _ vm | _ = vm.resultSpace
+    interpretCmd Quit _ vm | _ =
+      case io of
+        Local => vm.resultSpace
+        IO => pure $ Right vm.resultSpace
+        Std => pure $ Right vm.resultSpace
     interpretCmd (IfThenElse f sc1 sc2) sc vm {sx} | _
       = if (f vm.patternSpace)
         then interpretS (Then sc1 id sc) vm
         else interpretS (Then sc2 id sc) vm
-    interpretCmd (Call _ {pos}) sc vm {sx} | _
+    interpretCmd (Call _ {pos} {mol = Matches}) sc vm {sx} | _
       = let r := getRoutine sx pos vm.store
         in interpretS (Then r id sc) vm
+    interpretCmd (Call _ {pos} {mol = IsLocal}) sc vm {sx} | _
+      = let r := getRoutine sx pos vm.store
+        in interpretS (Then (liftScript r) id sc) vm
     interpretCmd (WithHoldContent _ f {pos}) sc vm {sx} | _
-      = interpretS (Then (f $ getHoldSpace pos vm.store) id sc) vm
+    = interpretS (Then (liftScript (f $ getHoldSpace pos vm.store)) id sc) vm
 
   export
-  interpretS : {sx : Variables} -> (sc : Scripts sx Local)
-            -> VMState sx Local -> SnocList String
-  interpretS (Just []) vm = vm.resultSpace
+  interpretS : {sx : Variables} -> {io : FileScriptType} -> (sc : Scripts sx io)
+            -> VMState sx -> Result io
+  interpretS (Just []) vm {io} =
+    case io of
+      Local => vm.resultSpace
+      IO    => pure $ Right vm.resultSpace
+      Std   => pure $ Right vm.resultSpace
   interpretS {sx} (Just ((ln *> fsc) :: sc)) vm
-    = interpretFS (Just [] id (Just sc)) fsc ln vm initLI
+    = interpretFS (Just [] id (Just sc)) (liftFileScript fsc) ln vm initLI
   interpretS (Just ((|> cmd) :: sc)) vm {sx} with (extractNewVars cmd)
     interpretS (Just ((|> cmd) :: sc)) vm {sx} | (ys ** Refl)
       = interpretCmd cmd (Just sc) vm 
   interpretS (Then [] tau scCont) vm
     = interpretS scCont (lift (\s => weaken s tau) vm)
   interpretS {sx} (Then ((ln *> fsc) :: sc) tau scCont) vm
-    = interpretFS (Just [] id (Then sc tau scCont)) fsc ln vm initLI
+    = interpretFS (Just [] id (Then sc tau scCont)) (liftFileScript fsc) ln vm initLI
   interpretS (Then ((|> cmd) :: sc) tau scCont) vm {sx} with (extractNewVars cmd)
     interpretS (Then ((|> cmd) :: sc) tau scCont) vm {sx} | (ys ** Refl)
       = interpretCmd cmd (Then sc (Weaken ys . tau) scCont) vm
-
-export
-interpretIO : (sc : Script [<] st) -> String -> IO (Either String (List String))
+  interpretS (Just ((f * fsc) :: sc)) vm = ?interpretS_missing_case_1
+  interpretS (Just ((|*> cmd) :: sc)) vm = ?interpretS_missing_case_2
+  interpretS (Then ((f * fsc) :: sc) tau sc') vm = ?interpretS_missing_case_3
+  interpretS (Then ((|*> cmd) :: sc) tau sc') vm = ?interpretS_missing_case_4

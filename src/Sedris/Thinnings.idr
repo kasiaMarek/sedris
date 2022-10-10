@@ -15,7 +15,7 @@ extractNewVars (CreateHold holdSpace {t} value)
 extractNewVars (HoldApp holdSpace f) = ([] ** Refl)
 extractNewVars (FromHold holdSpace f) = ([] ** Refl)
 extractNewVars (ExecOnHold holdSpace f) = ([] ** Refl)
-extractNewVars (Routine {st} label sc) = ([(Label st, label)] ** Refl)
+extractNewVars (Routine {st} {io,io'} label sc) = ([(Label st io', label)] ** Refl)
 extractNewVars (Call label) = ([] ** Refl)
 extractNewVars (IfThenElse f x y) = ([] ** Refl)
 extractNewVars (WithHoldContent holdSpace f) = ([] ** Refl)
@@ -109,9 +109,9 @@ mutual
     thin (HoldApp hs f {pos}) tau = HoldApp hs f {pos = pos `thin` tau}
     thin (FromHold hs f {pos}) tau = FromHold hs f {pos = pos `thin` tau}
     thin (ExecOnHold hs f {pos}) tau = ExecOnHold hs f {pos = pos `thin` tau}
-    thin (Routine label r {st = Total}) tau = Routine label (r `thin` tau)
-    thin (Routine label r {st = LineByLine}) tau = Routine label (r `thin` tau)
-    thin (Call label {pos}) tau = Call label {pos = pos `thin` tau}
+    thin (Routine label r {st = Total} {io'}) tau = Routine label {io'} (r `thin` tau)
+    thin (Routine label r {st = LineByLine} {io'}) tau = Routine label {io'} (r `thin` tau)
+    thin (Call label {pos} {io'}) tau = Call {io'} label {pos = pos `thin` tau}
     thin (IfThenElse f sc1 sc2 {st = Total}) tau =
       IfThenElse f (sc1 `thin` tau) (sc2 `thin` tau)
     thin (IfThenElse f sc1 sc2 {st = LineByLine}) tau =
@@ -181,3 +181,52 @@ namespace Weaken
            -> (sx <>< ys) <>< zs = sx <>< (ys ++ zs)
       fishConcat {sx = sx, zs = zs, ys = []} = Refl
       fishConcat {sx = sx, zs = zs, ys = (y :: ys)} = fishConcat
+
+mutual
+  liftCommand : Command sx ys st Local -> {io : FileScriptType}
+              -> Command sx ys st io
+  liftCommand (Replace r) = (Replace r)
+  liftCommand (Exec f) = (Exec f)
+  liftCommand Print = Print
+  liftCommand (CreateHold hs v) = (CreateHold hs v)
+  liftCommand (HoldApp hs f) = (HoldApp hs f)
+  liftCommand (FromHold hs f) = (FromHold hs f)
+  liftCommand (ExecOnHold hs f) = (ExecOnHold hs f)
+  liftCommand (Routine l r {mol = Matches}) = Routine l r {io' = Local}
+  liftCommand (Routine l r {mol = IsLocal}) = Routine l r {io' = Local}
+  liftCommand (Call l {mol = Matches} {pos}) = Call l {pos} {io' = Local}
+  liftCommand (Call l {mol = IsLocal} {pos}) = Call l {pos} {io' = Local}
+  liftCommand (IfThenElse f sc1 sc2 {st = LineByLine})
+    = IfThenElse f (liftFileScript sc1) (liftFileScript sc2)
+  liftCommand (IfThenElse f sc1 sc2 {st = Total})
+    = IfThenElse f (liftScript sc1) (liftScript sc2)
+  liftCommand (WithHoldContent hs f) = (WithHoldContent hs f)
+  liftCommand Quit = Quit
+  liftCommand Zap = Zap
+  liftCommand ZapFstLine = ZapFstLine
+  liftCommand ReadApp = ReadApp
+  liftCommand Put = Put
+  liftCommand LineNumber = LineNumber
+  liftCommand NewCycle = NewCycle
+  liftCommand (ReadFrom f {isIO}) impossible
+  liftCommand (QueueRead x {isIO}) impossible
+  liftCommand (PrintStd {isIO}) impossible
+  liftCommand (WriteTo f {isIO}) impossible
+  liftCommand (WriteLineTo f {isIO}) impossible
+  liftCommand (ClearFile f {isIO}) impossible
+  liftCommand (FileName {isIO}) impossible
+  
+  export
+  liftFileScript : FileScript sx Local -> {io : FileScriptType}
+                -> FileScript sx io
+  liftFileScript [] = []
+  liftFileScript ((> cmd) :: fsc) = (> liftCommand cmd) :: liftFileScript fsc
+  liftFileScript ((addr ?> cmd) :: fsc)
+    =  (addr ?> liftCommand cmd) :: liftFileScript fsc
+
+  export
+  liftScript : Script sx Local -> {io : FileScriptType} -> Script sx io
+  liftScript [] = []
+  liftScript ((strs *> x) :: sc) = (strs *> x) :: liftScript sc
+  liftScript ((|> cmd) :: sc) = (|> liftCommand cmd) :: liftScript sc
+
