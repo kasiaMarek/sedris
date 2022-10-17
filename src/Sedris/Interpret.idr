@@ -6,12 +6,46 @@ import Sedris.Thinnings
 import Sedris.VariableStore
 
 import public Data.Regex
+import public System.File
 import Data.DPair
+import Syntax.WithProof
+
+infix 1 >>==
+
+%hide TyRE.Text.Parser.Core.(>>=)
+
+public export
+IOEither : Type -> Type
+IOEither a = PrimIO.IO (Either FileError a)
+
+public export
+defaultFile : IOFile
+defaultFile = ("./","","")
 
 public export
 Result : FileScriptType -> Type
 Result Local  = SnocList String
-Result _      = IO (Either String (SnocList String))
+Result _      = IOEither (SnocList String)
+
+public export
+IOFilesStore : Type
+IOFilesStore = (Either File LocalFile, IOFile, List (Either IOFile LocalFile))
+
+public export
+File' : FileScriptType -> Type
+File' Local = LocalFile
+File' _     = IOFilesStore
+
+swap : Either a (IO  b) -> IO (Either a b)
+swap (Left x) = pure (Left x)
+swap (Right x) = map Right x
+
+(>>==) : IOEither a -> (a -> IOEither b) -> IOEither b
+(>>==) m f = do m' <- m
+                (map join . swap) (map f m')
+
+mapp : (a -> b) -> IOEither a -> IOEither b
+mapp f m = m >>== (\e => pure $ Right $ f e)
 
 record VMState (sx : Variables) where
   constructor MkVMState
@@ -42,6 +76,12 @@ deletePrefixLine str
       [] => ""
       (h :: tail) => unlines tail
 
+getPrefixLine : String -> String
+getPrefixLine str
+  = case (lines str) of
+    [] => ""
+    (h :: tail) => h
+
 namespace Scripts
   public export
   data Scripts : Variables -> FileScriptType -> Type where
@@ -64,6 +104,38 @@ getScript (Then fsc tau fscs) =
   let (sy' ** (Refl, tau', sc)) := getScript fscs
   in (sy' ** (Refl, tau . tau', sc))
 
+nextLineOfFile : Either File LocalFile
+        -> IOEither (Maybe (String, Either File LocalFile))
+nextLineOfFile (Left handle) =
+  do end <- fEOF handle
+     if end
+      then pure $ Right Nothing
+      else mapp (\l => Just (l, Left handle)) (fGetLine handle)
+nextLineOfFile (Right []) = pure $ Right Nothing
+nextLineOfFile (Right (l :: lns)) = pure $ Right $ Just (l, Right lns)
+
+nextFile : List (Either IOFile LocalFile)
+        -> IOFile
+        -> IOEither (Maybe (String, IOFilesStore))
+nextFile [] fname = pure $ Right Nothing
+nextFile (Left  file :: fl) fname =
+  openFile (join file) Read >>==
+    (\handle =>
+        do end <- fEOF handle
+           if end
+            then nextFile fl fname
+            else mapp (\l => Just (l, (Left handle, file, fl))) (fGetLine handle))
+nextFile (Right [] :: fl) fname = nextFile fl fname
+nextFile (Right (l :: lns)  :: fl) fname
+  = pure $ Right $ Just (l, (Right lns, fname, fl))
+
+nextLine : IOFilesStore -> IOEither (Maybe (String, IOFilesStore))
+nextLine (h, fname, rest) =
+  nextLineOfFile h >>==
+    (\case
+      Nothing => nextFile rest fname
+      Just (l, curr) => pure $ Right $ Just (l, (curr, fname, rest)))
+
 record LineInfo where
   constructor MkLineInfo
   line : String
@@ -75,6 +147,10 @@ from (MkLineInfo _ lineNumber _) name []
   = MkLineInfo name (S lineNumber) True
 from (MkLineInfo _ lineNumber _) name (x :: xs)
   = MkLineInfo name (S lineNumber) False
+
+from' : LineInfo -> String -> IOFilesStore -> IOEither LineInfo
+from' (MkLineInfo _ lineNumber _) str fs =
+  mapp ((MkLineInfo str lineNumber) . isJust) (nextLine fs)
 
 initLI : LineInfo
 initLI = MkLineInfo "" 0 False
@@ -130,7 +206,7 @@ isSimpleCommand PrintStd = Right (\case _ impossible)
 isSimpleCommand (WriteTo f) = Right (\case _ impossible)
 isSimpleCommand (WriteLineTo f) = Right (\case _ impossible)
 isSimpleCommand (ClearFile f) = Right (\case _ impossible)
-isSimpleCommand FileName = Right (\case _ impossible)
+isSimpleCommand (FileName hs) = Right (\case _ impossible)
 
 execSimpleCommand : (cmd : Command sx ys st io) -> VMState sx
                   -> {auto 0 prf : SimpleCommand cmd}
@@ -187,6 +263,40 @@ execSimpleCommand ZapFstLine {prf = IsZapFstLine}
               , store }
 
 mutual
+  newCycle : {io : FileScriptType}
+          -> (curr : FileScripts sx sy io)
+          -> (full : FileScript sy io)
+          -> File' io
+          -> VMState sx
+          -> LineInfo
+          -> Result io
+  newCycle curr full store vm li with (getScript curr)
+    newCycle curr full store vm li | (_ ** (Refl, tau, sc)) =
+      case io of
+        Local =>
+          case store of
+            []       => interpretS sc (lift (\s => weaken s tau) vm)
+            l :: lns => interpretFS (Just full id sc) full lns
+                                    (put l (lift (\s => weaken s tau) vm))
+                                    (from li l lns)
+        IO   => continue
+        Std  => continue where
+      continue : {auto 0 prf1 : File' io = IOFilesStore}
+              -> {auto 0 prf2 : Result io = IOEither (SnocList String)}
+              -> Result io
+      continue = rewrite prf2 in
+        nextLine (rewrite (sym prf1) in store) >>==
+          (\case
+            Nothing =>
+              rewrite (sym prf2) in
+              interpretS sc (lift (\s => weaken s tau) vm)
+            Just (l, store) =>
+              (from' li l store >>==
+              rewrite (sym prf2) in
+              (interpretFS  (Just full id sc) full
+                            (rewrite prf1 in store)
+                            (put l (lift (\s => weaken s tau) vm)))))
+
   export
   interpretFSCmd : {sx : Variables}
                 -> {ys : List Variable}
@@ -195,7 +305,7 @@ mutual
                 -> (cmd : Command sx ys LineByLine io)
                 -> (curr : FileScripts (sx <>< ys) sy io)
                 -> (full : FileScript sy io)
-                -> List String
+                -> File' io
                 -> VMState sx
                 -> LineInfo
                 -> Result io
@@ -223,60 +333,147 @@ mutual
       let r := getRoutine sx pos vm.store
       in case mol of
           Matches => interpretFS (Then r id curr) full lines vm li
-          IsLocal => interpretFS  (Then (liftFileScript r) id curr)
+          AreLocalStd => interpretFS  (Then (liftFileScript r) id curr)
+                                  full lines vm li
+          AreLocalIO => interpretFS  (Then (liftFileScript r) id curr)
+                                  full lines vm li
+          AreStdIO => interpretFS  (Then (liftFileScriptStd r) id curr)
                                   full lines vm li
     interpretFSCmd (WithHoldContent _ f {pos}) curr full lines vm li | _
       = interpretFS
-          (Then (liftFileScript $ f $ getHoldSpace pos vm.store) id curr)
+          (Then (f $ getHoldSpace pos vm.store) id curr)
           full lines vm li
-    interpretFSCmd ReadApp curr full [] vm li | _ =
-      let (sy ** (Refl, tau, sc)) = getScript curr
-      in interpretS sc (lift (\s => weaken s tau) vm)
-    interpretFSCmd ReadApp curr full (l :: ln)
-                   (MkVMState patternSpace resultSpace store) li | _ =
-      interpretFS curr full ln
-                  (MkVMState (l ++ "\n" ++ patternSpace) resultSpace store)
+    interpretFSCmd ReadApp curr full store vm li | _ =
+      case io of
+        Local =>
+          case store of
+            [] =>
+              let (sy ** (Refl, tau, sc)) = getScript curr
+              in interpretS sc (lift (\s => weaken s tau) vm)
+            (l :: ln) =>
+                  interpretFS curr full ln
+                  (put (l ++ "\n" ++ vm.patternSpace) vm)
                   (from li l ln)
-    interpretFSCmd Put curr full [] vm li | _ =
-      let (sy ** (Refl, tau, sc)) = getScript curr
-      in interpretS sc (lift (\s => weaken s tau) vm)
-    interpretFSCmd Put curr full (l :: ln) vm li | _ =
-      interpretFS curr full ln (put l vm) (from li l ln)
+        IO => continue
+        Std => continue where
+      continue : {auto 0 prf1 : File' io = IOFilesStore}
+              -> {auto 0 prf2 : Result io = IOEither (SnocList String)}
+              -> Result io
+      continue = rewrite prf2 in
+        nextLine (rewrite (sym prf1) in store) >>==
+          (\case
+            Nothing =>
+              rewrite (sym prf2) in
+              let (sy ** (Refl, tau, sc)) = getScript curr
+              in interpretS sc (lift (\s => weaken s tau) vm)
+            Just (l, store) =>
+              from' li l store >>==
+              rewrite (sym prf2) in
+              interpretFS curr full (rewrite prf1 in store)
+                          (put (l ++ "\n" ++ vm.patternSpace) vm))
+    interpretFSCmd Put curr full store vm li | _ =
+      case io of
+        Local =>
+          case store of
+            [] =>
+              let (sy ** (Refl, tau, sc)) = getScript curr
+              in interpretS sc (lift (\s => weaken s tau) vm)
+            (l :: ln) => interpretFS curr full ln (put l vm) (from li l ln)
+        IO => continue
+        Std => continue where
+      continue : {auto 0 prf1 : File' io = IOFilesStore}
+              -> {auto 0 prf2 : Result io = IOEither (SnocList String)}
+              -> Result io
+      continue = rewrite prf2 in
+        nextLine (rewrite (sym prf1) in store) >>==
+          (\case
+            Nothing =>
+              rewrite (sym prf2) in
+              let (sy ** (Refl, tau, sc)) = getScript curr
+              in interpretS sc (lift (\s => weaken s tau) vm)
+            Just (l, store) =>
+              from' li l store >>==
+              rewrite (sym prf2) in
+              interpretFS curr full (rewrite prf1 in store) (put l vm))
     interpretFSCmd LineNumber curr full lines
                    (MkVMState patternSpace resultSpace store)
                    li@(MkLineInfo _ lineNum _) | _ =
       interpretFS curr full lines
                   (MkVMState patternSpace (resultSpace :< show lineNum) store) li
-    interpretFSCmd NewCycle curr full ln vm li | _ =
-      let (sy ** (Refl, tau, sc)) = getScript curr
-      in case ln of
-          [] => interpretS sc (lift (\s => weaken s tau) vm)
-          (l :: ln) =>
-            interpretFS (Just full id sc) full ln
-              (put l (lift (\s => weaken s tau) vm)) (from li l ln)
-    interpretFSCmd (ReadFrom lns) curr full lines vm li | _ = ?nceko
-      --interpretFS curr full lns vm li
-    interpretFSCmd (QueueRead lns) curr full lines vm li | _ = ?cwn
-      --interpretFS curr full (lines ++ lns) vm li
-    interpretFSCmd PrintStd curr full lines vm li | _ = ?what
-    interpretFSCmd (WriteTo _) curr full lines vm li | _ = ?what_1
-    interpretFSCmd (WriteLineTo _) curr full lines vm li | _ = ?what_2
-    interpretFSCmd (ClearFile _) curr full lines vm li | _ = ?what_3
-    interpretFSCmd FileName curr full lines vm li | _ = ?what_4
+    interpretFSCmd NewCycle curr full ln vm li {io} | _
+      = newCycle curr full ln vm li
+    interpretFSCmd (ReadFrom lns) curr full lines vm li {io = Local} | _
+      = interpretFS curr full lns vm li
+    interpretFSCmd (ReadFrom fl') curr full (fl, flname, rest) vm li {io = IO} | _
+      = case fl' of
+        Left file => (openFile (join file) Read) >>==
+                     (\f => interpretFS curr full (Left f, file, rest) vm li)
+        Right lns => interpretFS curr full (Right lns, flname, rest) vm li
+    interpretFSCmd (ReadFrom fl') curr full (fl, flname, rest) vm li {io = Std} | _
+      = case fl' of
+        Left file => (openFile (join file) Read) >>==
+                     (\f => interpretFS curr full (Left f, file, rest) vm li)
+        Right lns => interpretFS curr full (Right lns, flname, rest) vm li
+    interpretFSCmd (QueueRead lns) curr full lines vm li {io = Local} | _
+      = interpretFS curr full (lines ++ lns) vm li
+    interpretFSCmd (QueueRead lns) curr full (fl, flname, rest) vm li {io = IO} | _
+      = interpretFS curr full (fl, flname, rest ++ [lns]) vm li
+    interpretFSCmd (QueueRead lns) curr full (fl, flname, rest) vm li {io = Std} | _
+      = interpretFS curr full (fl, flname, rest ++ [lns]) vm li
+    interpretFSCmd (PrintStd {isIO}) curr full lines vm li | _ =
+      case io of
+        Std =>  map Right (putStrLn vm.patternSpace) >>==
+                (\_ => interpretFS curr full lines vm li)
+        IO  =>  map Right (putStrLn vm.patternSpace) >>==
+                (\_ => interpretFS curr full lines vm li)
+    interpretFSCmd (WriteTo f {isIO}) curr full store vm li | _
+      = case io of
+          Local => case isIO of _ impossible
+          IO =>
+            ((openFile (join f) Append) >>==
+            (\h => fPutStrLn h vm.patternSpace)) >>==
+            (\_ => interpretFS curr full store vm li)
+          Std =>
+            ((openFile (join f) Append) >>==
+            (\h => fPutStrLn h vm.patternSpace)) >>==
+            (\_ => interpretFS curr full store vm li)
+    interpretFSCmd (WriteLineTo f {isIO}) curr full store vm li | _
+      = case io of
+          Local => case isIO of _ impossible
+          IO =>
+            ((openFile (join f) Append) >>==
+            (\h => fPutStrLn h (getPrefixLine vm.patternSpace))) >>==
+            (\_ => interpretFS curr full store vm li)
+          Std =>
+            ((openFile (join f) Append) >>==
+            (\h => fPutStrLn h (getPrefixLine vm.patternSpace))) >>==
+            (\_ => interpretFS curr full store vm li)
+    interpretFSCmd (ClearFile f {isIO}) curr full store vm li | _ =
+      case io of
+        Local => case isIO of _ impossible
+        IO  => ((openFile (join f) WriteTruncate) >>==
+               (\h => fPutStr h "")) >>==
+               (\_ => interpretFS curr full store vm li)
+        Std => ((openFile (join f) WriteTruncate) >>==
+               (\h => fPutStr h "")) >>==
+               (\_ => interpretFS curr full store vm li)
+    interpretFSCmd (FileName hs {pos}) curr full store vm li {io = IO} | _ =
+      let (_, fname, _) := store
+          vm' : VMState sx
+          vm' = execSimpleCommand {io = IO} {st = LineByLine} {prf = IsExecOnHold}
+                                  (ExecOnHold hs (\_ => fname) {pos}) vm
+      in interpretFS curr full store vm' li
 
   interpretFS :  {sx : Variables}
               -> {io : FileScriptType}
               -> (curr : FileScripts sx sy io)
               -> (full : FileScript sy io)
-              -> List String
+              -> File' io
               -> VMState sx
               -> LineInfo
               -> Result io
-  interpretFS (Just [] tau sc) full [] vm _
-    = interpretS sc (lift (\s => weaken s tau) vm)
-  interpretFS (Just [] tau sc) full (l :: ln) vm li
-    = interpretFS (Just full id sc) full ln
-        (put l (lift (\s => weaken s tau) vm)) (from li l ln)
+  interpretFS (Just [] tau sc) full ln vm li
+    = newCycle (Just [] tau sc) full ln vm li
   interpretFS (Just ((> cmd) :: fsc') tau sc)
                           full strs vm li with (extractNewVars cmd)
     interpretFS (Just ((> cmd) :: fsc') tau sc)
@@ -291,8 +488,7 @@ mutual
       else interpretFS
             (Just fsc' tau sc) full strs vm li
   interpretFS (Then [] tau' fsc {sy = sy'}) full lines vm li
-    = interpretFS fsc full
-                              lines (lift (\s => weaken s tau') vm) li
+    = interpretFS fsc full lines (lift (\s => weaken s tau') vm) li
   interpretFS (Then ((> cmd) :: fsc') tau' fsc)
                           full strs vm li with (extractNewVars cmd)
     interpretFS (Then ((> cmd) :: fsc') tau' fsc)
@@ -338,11 +534,17 @@ mutual
     interpretCmd (Call _ {pos} {mol = Matches}) sc vm {sx} | _
       = let r := getRoutine sx pos vm.store
         in interpretS (Then r id sc) vm
-    interpretCmd (Call _ {pos} {mol = IsLocal}) sc vm {sx} | _
+    interpretCmd (Call _ {pos} {mol = AreLocalStd}) sc vm {sx} | _
       = let r := getRoutine sx pos vm.store
         in interpretS (Then (liftScript r) id sc) vm
+    interpretCmd (Call _ {pos} {mol = AreLocalIO}) sc vm {sx} | _
+      = let r := getRoutine sx pos vm.store
+        in interpretS (Then (liftScript r) id sc) vm
+    interpretCmd (Call _ {pos} {mol = AreStdIO}) sc vm {sx} | _
+      = let r := getRoutine sx pos vm.store
+        in interpretS (Then (liftScriptStd r) id sc) vm
     interpretCmd (WithHoldContent _ f {pos}) sc vm {sx} | _
-    = interpretS (Then (liftScript (f $ getHoldSpace pos vm.store)) id sc) vm
+    = interpretS (Then (f $ getHoldSpace pos vm.store) id sc) vm
 
   export
   interpretS : {sx : Variables} -> {io : FileScriptType} -> (sc : Scripts sx io)
@@ -353,18 +555,48 @@ mutual
       IO    => pure $ Right vm.resultSpace
       Std   => pure $ Right vm.resultSpace
   interpretS {sx} (Just ((ln *> fsc) :: sc)) vm
-    = interpretFS (Just [] id (Just sc)) (liftFileScript fsc) ln vm initLI
+    = case io of
+        Local => interpretFS (Just [] id (Just sc)) fsc ln vm initLI
+        IO    => interpretFS (Just [] id (Just sc)) (liftFileScript fsc)
+                             (Right ln, defaultFile, []) vm initLI
+        Std   => interpretFS (Just [] id (Just sc)) (liftFileScript fsc)
+                             (Right ln, defaultFile, []) vm initLI
   interpretS (Just ((|> cmd) :: sc)) vm {sx} with (extractNewVars cmd)
     interpretS (Just ((|> cmd) :: sc)) vm {sx} | (ys ** Refl)
       = interpretCmd cmd (Just sc) vm 
   interpretS (Then [] tau scCont) vm
     = interpretS scCont (lift (\s => weaken s tau) vm)
   interpretS {sx} (Then ((ln *> fsc) :: sc) tau scCont) vm
-    = interpretFS (Just [] id (Then sc tau scCont)) (liftFileScript fsc) ln vm initLI
+    = case io of
+        Local => interpretFS (Just [] id (Then sc tau scCont)) fsc ln vm initLI
+        IO    => interpretFS  (Just [] id (Then sc tau scCont))
+                              (liftFileScript fsc) (Right ln, defaultFile, [])
+                              vm initLI
+        Std   => interpretFS  (Just [] id (Then sc tau scCont))
+                              (liftFileScript fsc) (Right ln, defaultFile, [])
+                              vm initLI
   interpretS (Then ((|> cmd) :: sc) tau scCont) vm {sx} with (extractNewVars cmd)
     interpretS (Then ((|> cmd) :: sc) tau scCont) vm {sx} | (ys ** Refl)
       = interpretCmd cmd (Then sc (Weaken ys . tau) scCont) vm
-  interpretS (Just ((f * fsc) :: sc)) vm = ?interpretS_missing_case_1
-  interpretS (Just ((|*> cmd) :: sc)) vm = ?interpretS_missing_case_2
-  interpretS (Then ((f * fsc) :: sc) tau sc') vm = ?interpretS_missing_case_3
-  interpretS (Then ((|*> cmd) :: sc) tau sc') vm = ?interpretS_missing_case_4
+  interpretS (Just ((fls * fsc) :: sc)) vm
+    = case fls of
+        [] => interpretS (Just sc) vm
+        (f :: fls) =>
+          openFile (join f) Read {io = IO}
+          >>== (\h => interpretFS (Just [] id (Just sc)) fsc
+                                  (Left h, f, map Left fls) vm initLI)
+  interpretS (Just ((|*> fsc) :: sc)) vm =
+    interpretFS (Just [] id (Just sc))
+                (liftFileScriptStd fsc)
+                (Left stdin, defaultFile, []) vm initLI
+  interpretS (Then ((fls * fsc) :: sc) tau sc') vm
+    = case fls of
+        [] => interpretS (Just sc) vm
+        (f :: fls) =>
+          openFile (join f) Read {io = IO}
+          >>== (\h => interpretFS (Just [] id (Then sc tau sc'))
+                                  fsc (Left h, f, map Left fls) vm initLI)
+  interpretS (Then ((|*> fsc) :: sc) tau sc') vm
+    = interpretFS (Just [] id (Then sc tau sc'))
+                  (liftFileScriptStd fsc)
+                  (Left stdin, defaultFile, []) vm initLI

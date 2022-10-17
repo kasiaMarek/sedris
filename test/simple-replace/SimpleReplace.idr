@@ -1,12 +1,14 @@
 import Sedris
 
 simpleReplace : (re : TyRE a) -> {auto 0 consuming : IsConsuming re}
-              -> (a -> String) -> String -> Script [<] IO
+              -> (a -> String) -> IOFile -> Script [<] IO
 simpleReplace tyre toStr file =
-  [ (file ::: []) *
-    [ Line 1 ?> ClearFile outFile
+  [ |> CreateHold "filename" ("", "", "")
+  , [file] *
+    [ Line 1 ?> FileName "filename"
+    , Line 1 ?> WithHoldContent "filename" (\f => [ > ClearFile (outFile f)])
     , > Replace (AllRe tyre toStr)
-    , > WriteTo outFile ]
+    , > WithHoldContent "filename" (\f => [ > WriteTo (outFile f)])]
   ] where
   outFile : (String, String, String) -> (String, String, String)
   outFile (path, name, ext) = (path, name ++ "_out", ext)

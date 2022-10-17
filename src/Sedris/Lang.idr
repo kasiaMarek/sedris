@@ -30,24 +30,24 @@ IOFile : Type
 IOFile = (String, String, String)
 
 public export
+join : IOFile -> String
+join (path, name, ext) = path ++ name ++ ext
+
+public export
 data FileScriptType = Local | IO | Std
 
 public export
-chooseFileIn : FileScriptType -> Type
-chooseFileIn Local = LocalFile
-chooseFileIn IO    = IOFile
-chooseFileIn Std   = ()
+chooseFileSrc : FileScriptType -> Type
+chooseFileSrc Local = LocalFile
+chooseFileSrc _ = Either IOFile LocalFile
+
 
 public export
-chooseFileOut : FileScriptType -> Type
-chooseFileOut Local = LocalFile
-chooseFileOut IO    = IOFile
-chooseFileOut Std   = IOFile
-
-public export
-data MatchesOrLocal : FileScriptType -> FileScriptType -> Type where
-  Matches : MatchesOrLocal io io
-  IsLocal : MatchesOrLocal Local io
+data MatchesFileScriptType : FileScriptType -> FileScriptType -> Type where
+  Matches : MatchesFileScriptType io io
+  AreLocalStd : MatchesFileScriptType Local Std
+  AreLocalIO : MatchesFileScriptType Local IO
+  AreStdIO : MatchesFileScriptType Std IO
 
 public export
 data VarType
@@ -143,14 +143,14 @@ mutual
             -> {st : ScriptType}
             -> {io : FileScriptType}
             -> {default io io' : FileScriptType}
-            -> {auto mol : MatchesOrLocal io' io}
+            -> {auto mol : MatchesFileScriptType io' io}
             -> getScriptByType st sx io'
             -> Command sx [(Label st io', label)] st io
     ||| Go to routine with named `label`
     Call : (label : String)
         -> {io : FileScriptType}
         -> {default io io' : FileScriptType}
-        -> {auto mol : MatchesOrLocal io' io}
+        -> {auto mol : MatchesFileScriptType io' io}
         -> {auto pos : (Label st io', label) `Elem` sx}
         -> Command sx [] st io
     -- ||| If then else contruction
@@ -165,7 +165,7 @@ mutual
                     -> {t : Type}
                     -> {st : ScriptType}
                     -> {auto pos : (HoldSpace t, holdSpace) `Elem` sx}
-                    -> (t -> getScriptByType st sx Local)
+                    -> (t -> getScriptByType st sx io)
                     -> Command sx [] st io
   --- other ---
     |||Quit
@@ -186,29 +186,29 @@ mutual
     |||Start new cycle
     NewCycle : Command sx [] LineByLine t
     |||Start reading from a new file
-    ReadFrom : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-            -> (chooseFileOut t) -> Command sx [] LineByLine t
+    ReadFrom : (chooseFileSrc t) -> Command sx [] LineByLine t
     |||Queue next file to read
-    QueueRead : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-              -> (chooseFileOut t) -> Command sx [] LineByLine t
+    QueueRead : (chooseFileSrc t) -> Command sx [] LineByLine t
     --- other IO commands ---
     |||Print content of the pattern space
-    PrintStd : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t} -> Command sx [] LineByLine t
+    PrintStd : {0 t : FileScriptType} -> {auto isIO : NeedsIO t}
+            -> Command sx [] LineByLine t
     ||| Append contents of the pattern space to a file
     ||| which names depends on current file name - (path, name, extension)
-    WriteTo : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-            -> (chooseFileIn t -> chooseFileOut t) -> Command sx [] LineByLine t
+    WriteTo : {0 t : FileScriptType} -> {auto isIO : NeedsIO t}
+            -> IOFile -> Command sx [] LineByLine t
     ||| Append contents of the pattern space up to `\n` to a file
     ||| which names depends on current file name - (path, name, extension)
-    WriteLineTo : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-                -> (chooseFileIn t -> chooseFileOut t) -> Command sx [] LineByLine t
+    WriteLineTo : {0 t : FileScriptType} -> {auto isIO : NeedsIO t}
+                -> IOFile -> Command sx [] LineByLine t
     ||| Delete file contents
     ||| which names depends on current file name - (path, name, extension)
-    ClearFile : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-              -> (chooseFileIn t -> chooseFileOut t) -> Command sx [] LineByLine t
+    ClearFile : {0 t : FileScriptType} -> {auto isIO : NeedsIO t}
+              -> IOFile -> Command sx [] LineByLine t
     |||Print the file name
-    FileName : {t : FileScriptType} -> {auto 0 isIO : NeedsIO t}
-            -> Command sx [] LineByLine t
+    FileName : (holdSpace : String)
+            -> {auto pos : (HoldSpace IOFile, holdSpace) `Elem` sx}
+            -> Command sx [] LineByLine IO
 
   public export
   data CommandWithAddress : Variables
@@ -229,7 +229,7 @@ mutual
   public export
   data ScriptCommand : Variables -> List Variable
                     -> FileScriptType -> Type where
-    (*)   : List1 String -> FileScript sx IO -> ScriptCommand sx [] IO -- IO
+    (*)   : List IOFile -> FileScript sx IO -> ScriptCommand sx [] IO -- IO
     (|*>) : FileScript sx Std -> ScriptCommand sx [] IO -- IO
     ||| Line by line processing for in program data
     (*>)  : List String -> FileScript sx Local -> ScriptCommand sx [] t

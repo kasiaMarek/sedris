@@ -2,7 +2,7 @@ import Sedris.Lang
 
 Ex1 : Script [<] IO
 Ex1 =
-  [ ("filename.txt" ::: []) *
+  [ [("./", "filename", "txt")] *
     [ > Routine "whatnot"
         [ > Replace (All "foo" "bar")]
     , Line 3 ?> Call "whatnot"

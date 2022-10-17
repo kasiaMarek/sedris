@@ -1,9 +1,9 @@
 import Sedris
 
-wordCount : String -> Script [<] IO
+wordCount : IOFile -> Script [<] IO
 wordCount fileName
   = [ |> CreateHold "count" Z
-    , (fileName ::: []) *
+    , [fileName] *
       [ > HoldApp "count" (\curr,line => curr + wc line)
       , LastLine ?> FromHold "count" (const $ the (Nat -> String) show)
       , LastLine ?> Print]

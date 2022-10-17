@@ -32,7 +32,7 @@ extractNewVars PrintStd = ([] ** Refl)
 extractNewVars (WriteTo f) = ([] ** Refl)
 extractNewVars (WriteLineTo f) = ([] ** Refl)
 extractNewVars (ClearFile f) = ([] ** Refl)
-extractNewVars FileName = ([] ** Refl)
+extractNewVars (FileName hs) = ([] ** Refl)
 
 public export
 data Thinning : Variables -> Variables -> Type where
@@ -133,7 +133,7 @@ mutual
     thin (WriteTo fl) tau = WriteTo fl
     thin (WriteLineTo fl) tau = WriteLineTo fl
     thin (ClearFile fl) tau = ClearFile fl
-    thin FileName tau = FileName
+    thin (FileName hs {pos}) tau = FileName hs {pos = pos `thin` tau}
 
   namespace FileScript
     public export
@@ -192,15 +192,20 @@ mutual
   liftCommand (HoldApp hs f) = (HoldApp hs f)
   liftCommand (FromHold hs f) = (FromHold hs f)
   liftCommand (ExecOnHold hs f) = (ExecOnHold hs f)
-  liftCommand (Routine l r {mol = Matches}) = Routine l r {io' = Local}
-  liftCommand (Routine l r {mol = IsLocal}) = Routine l r {io' = Local}
-  liftCommand (Call l {mol = Matches} {pos}) = Call l {pos} {io' = Local}
-  liftCommand (Call l {mol = IsLocal} {pos}) = Call l {pos} {io' = Local}
+  liftCommand (Routine l r {mol = Matches}) {io = Local} = Routine l r
+  liftCommand (Routine l r {mol = Matches}) {io = IO} = Routine l r {io' = Local}
+  liftCommand (Routine l r {mol = Matches}) {io = Std} = Routine l r {io' = Local}
+  liftCommand (Call l {mol = Matches} {pos}) {io = Local} = Call l {pos} {io' = Local}
+  liftCommand (Call l {mol = Matches} {pos}) {io = IO} = Call l {pos} {io' = Local}
+  liftCommand (Call l {mol = Matches} {pos}) {io = Std} = Call l {pos} {io' = Local}
   liftCommand (IfThenElse f sc1 sc2 {st = LineByLine})
     = IfThenElse f (liftFileScript sc1) (liftFileScript sc2)
   liftCommand (IfThenElse f sc1 sc2 {st = Total})
     = IfThenElse f (liftScript sc1) (liftScript sc2)
-  liftCommand (WithHoldContent hs f) = (WithHoldContent hs f)
+  liftCommand (WithHoldContent hs f {pos} {st = Total})
+    = WithHoldContent hs (\x => liftScript (f x)) {pos}
+  liftCommand (WithHoldContent hs f {pos} {st = LineByLine})
+    = WithHoldContent hs (\x => liftFileScript (f x)) {pos}
   liftCommand Quit = Quit
   liftCommand Zap = Zap
   liftCommand ZapFstLine = ZapFstLine
@@ -208,13 +213,16 @@ mutual
   liftCommand Put = Put
   liftCommand LineNumber = LineNumber
   liftCommand NewCycle = NewCycle
-  liftCommand (ReadFrom f {isIO}) impossible
-  liftCommand (QueueRead x {isIO}) impossible
+  liftCommand (ReadFrom f)  {io = Local} = ReadFrom f
+  liftCommand (ReadFrom f)  {io = IO}    = ReadFrom (Right f)
+  liftCommand (ReadFrom f)  {io = Std}   = ReadFrom (Right f)
+  liftCommand (QueueRead f) {io = Local} = QueueRead f
+  liftCommand (QueueRead f) {io = IO}    = QueueRead (Right f)
+  liftCommand (QueueRead f) {io = Std}   = QueueRead (Right f)
   liftCommand (PrintStd {isIO}) impossible
   liftCommand (WriteTo f {isIO}) impossible
   liftCommand (WriteLineTo f {isIO}) impossible
   liftCommand (ClearFile f {isIO}) impossible
-  liftCommand (FileName {isIO}) impossible
   
   export
   liftFileScript : FileScript sx Local -> {io : FileScriptType}
@@ -230,3 +238,50 @@ mutual
   liftScript ((strs *> x) :: sc) = (strs *> x) :: liftScript sc
   liftScript ((|> cmd) :: sc) = (|> liftCommand cmd) :: liftScript sc
 
+mutual
+  liftCommandStd : Command sx ys st Std -> Command sx ys st IO
+  liftCommandStd (Replace r) = Replace r
+  liftCommandStd (Exec f) = Exec f
+  liftCommandStd Print = Print
+  liftCommandStd (CreateHold hs v) = CreateHold hs v
+  liftCommandStd (HoldApp hs f) = HoldApp hs f
+  liftCommandStd (FromHold hs f) = FromHold hs f
+  liftCommandStd (ExecOnHold hs f) = ExecOnHold hs f
+  liftCommandStd (Routine l r {mol = Matches}) = Routine l r {io' = Std}
+  liftCommandStd (Routine l r {mol = AreLocalStd}) = Routine l r {io' = Local}
+  liftCommandStd (Call l {mol = Matches}) = Call l {io' = Std}
+  liftCommandStd (Call l {mol = AreLocalStd}) = Call l {io' = Local}
+  liftCommandStd (IfThenElse f sc1 sc2 {st = LineByLine})
+    = IfThenElse f (liftFileScriptStd sc1) (liftFileScriptStd sc2)
+  liftCommandStd (IfThenElse f sc1 sc2 {st = Total})
+    = IfThenElse f (liftScriptStd sc1) (liftScriptStd sc2)
+  liftCommandStd (WithHoldContent hs f {pos} {st = Total})
+    = WithHoldContent hs (\x => liftScriptStd (f x)) {pos}
+  liftCommandStd (WithHoldContent hs f {pos} {st = LineByLine})
+    = WithHoldContent hs (\x => liftFileScriptStd (f x)) {pos}
+  liftCommandStd Quit = Quit
+  liftCommandStd Zap = Zap
+  liftCommandStd ZapFstLine = ZapFstLine
+  liftCommandStd ReadApp = ReadApp
+  liftCommandStd Put = Put
+  liftCommandStd LineNumber = LineNumber
+  liftCommandStd NewCycle = NewCycle
+  liftCommandStd (ReadFrom f) = ReadFrom f
+  liftCommandStd (QueueRead f) = QueueRead f
+  liftCommandStd PrintStd = PrintStd
+  liftCommandStd (WriteTo f) = WriteTo f
+  liftCommandStd (WriteLineTo f) = WriteLineTo f
+  liftCommandStd (ClearFile f) = ClearFile f
+
+  export
+  liftFileScriptStd : FileScript sx Std -> FileScript sx IO
+  liftFileScriptStd [] = []
+  liftFileScriptStd ((> cmd) :: fsc) = (> liftCommandStd cmd) :: liftFileScriptStd fsc
+  liftFileScriptStd ((addr ?> cmd) :: fsc)
+    =  (addr ?> liftCommandStd cmd) :: liftFileScriptStd fsc
+
+  export
+  liftScriptStd : Script sx Std -> Script sx IO
+  liftScriptStd [] = []
+  liftScriptStd ((strs *> x) :: sc) = (strs *> x) :: liftScriptStd sc
+  liftScriptStd ((|> cmd) :: sc) = (|> liftCommandStd cmd) :: liftScriptStd sc
