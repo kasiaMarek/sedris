@@ -192,7 +192,7 @@ mutual
     --- other IO commands ---
     |||Print content of the pattern space
     PrintStd : {0 t : FileScriptType} -> {auto isIO : NeedsIO t}
-            -> Command sx [] LineByLine t
+            -> Command sx [] st t
     ||| Append contents of the pattern space to a file
     ||| which names depends on current file name - (path, name, extension)
     WriteTo : {0 t : FileScriptType} -> {auto isIO : NeedsIO t}

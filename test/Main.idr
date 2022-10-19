@@ -8,6 +8,7 @@ core : TestPool
 core = MkTestPool "core" [] Nothing
       [ "simple-replace"
       , "word-count"
+      , "last-lines"
       ]
 
 main : IO ()

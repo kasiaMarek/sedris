@@ -3,6 +3,7 @@ module Sedris
 import public Sedris.Lang
 import Sedris.Interpret
 import public Data.Regex
+import public System.File
 
 export
 interpret : (sc : Script [<] Local) -> String -> SnocList String

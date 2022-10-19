@@ -70,6 +70,13 @@ put str (MkVMState patternSpace resultSpace store)
               , resultSpace
               , store }
 
+dropNewLine : String -> String
+dropNewLine str = fastPack $ go $ fastUnpack str where
+  go : List Char -> List Char
+  go [] = []
+  go ['\n'] = []
+  go (x::xs) = x :: (go xs)
+
 deletePrefixLine : String -> String
 deletePrefixLine str
   = case (lines str) of
@@ -136,6 +143,22 @@ nextLine (h, fname, rest) =
       Nothing => nextFile rest fname
       Just (l, curr) => pure $ Right $ Just (l, (curr, fname, rest)))
 
+isLastLine : IOFilesStore -> IOEither Bool
+isLastLine (curr, _, rest)
+  = foldr (\case
+            (Right lns) => mapp (&& isNil lns)
+            (Left f) => (\acc =>
+              openFile (join f) Read >>==
+                (\file =>
+                  do end <- fEOF file {io = IO}
+                     mapp (&& end) acc)))
+          isLastForCurr rest where
+  isLastForCurr : IOEither Bool
+  isLastForCurr =
+    case curr of
+      Right lns => pure $ Right $ isNil lns
+      Left f => map Right (fEOF f)
+
 record LineInfo where
   constructor MkLineInfo
   line : String
@@ -150,7 +173,7 @@ from (MkLineInfo _ lineNumber _) name (x :: xs)
 
 from' : LineInfo -> String -> IOFilesStore -> IOEither LineInfo
 from' (MkLineInfo _ lineNumber _) str fs =
-  mapp ((MkLineInfo str lineNumber) . isJust) (nextLine fs)
+  mapp (MkLineInfo str (S lineNumber)) (isLastLine fs)
 
 initLI : LineInfo
 initLI = MkLineInfo "" 0 False
@@ -158,7 +181,7 @@ initLI = MkLineInfo "" 0 False
 addrCheck : Address -> LineInfo -> Bool
 addrCheck (Line n)         (MkLineInfo _ lineNum _)  = (n == lineNum)
 addrCheck (Lines ns)       (MkLineInfo _ lineNum _)  = isJust $ find (== lineNum) ns
-addrCheck (LineRange s l)  (MkLineInfo _ lineNum _)  = lineNum < l && lineNum >= s
+addrCheck (LineRange s l)  (MkLineInfo _ lineNum _)  = lineNum >= s && lineNum <= l
 addrCheck (RegexWhole re)  (MkLineInfo line _ _)     = match re line
 addrCheck (RegexPrefix re) (MkLineInfo line _ _)     = isJust $ parsePrefix re line
 addrCheck (RegexExists re) (MkLineInfo line _ _)     =
@@ -291,11 +314,12 @@ mutual
               rewrite (sym prf2) in
               interpretS sc (lift (\s => weaken s tau) vm)
             Just (l, store) =>
-              (from' li l store >>==
-              rewrite (sym prf2) in
-              (interpretFS  (Just full id sc) full
-                            (rewrite prf1 in store)
-                            (put l (lift (\s => weaken s tau) vm)))))
+              let l' = dropNewLine l
+              in (from' li l' store >>==
+                 rewrite (sym prf2) in
+                 (interpretFS (Just full id sc) full
+                              (rewrite prf1 in store)
+                              (put l' (lift (\s => weaken s tau) vm)))))
 
   export
   interpretFSCmd : {sx : Variables}
@@ -395,11 +419,10 @@ mutual
               from' li l store >>==
               rewrite (sym prf2) in
               interpretFS curr full (rewrite prf1 in store) (put l vm))
-    interpretFSCmd LineNumber curr full lines
-                   (MkVMState patternSpace resultSpace store)
+    interpretFSCmd LineNumber curr full lines vm
                    li@(MkLineInfo _ lineNum _) | _ =
       interpretFS curr full lines
-                  (MkVMState patternSpace (resultSpace :< show lineNum) store) li
+                  (put (show lineNum) vm) li
     interpretFSCmd NewCycle curr full ln vm li {io} | _
       = newCycle curr full ln vm li
     interpretFSCmd (ReadFrom lns) curr full lines vm li {io = Local} | _
@@ -545,6 +568,12 @@ mutual
         in interpretS (Then (liftScriptStd r) id sc) vm
     interpretCmd (WithHoldContent _ f {pos}) sc vm {sx} | _
     = interpretS (Then (f $ getHoldSpace pos vm.store) id sc) vm
+    interpretCmd (PrintStd {isIO}) sc vm | _ =
+      case io of
+        Std =>  map Right (putStrLn vm.patternSpace) >>==
+                (\_ => interpretS sc vm)
+        IO  =>  map Right (putStrLn vm.patternSpace) >>==
+                (\_ => interpretS sc vm)
 
   export
   interpretS : {sx : Variables} -> {io : FileScriptType} -> (sc : Scripts sx io)
