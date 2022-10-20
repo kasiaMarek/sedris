@@ -36,3 +36,10 @@ Nam quisquam iste et maiores ducimus et iure perferendis quo voluptatem consequu
 
 test1 : IO ()
 test1 = putStr $ unlines $ cast $ interpret (wordCountLocal (lines text)) ""
+
+test2 : IO ()
+test2 =
+  interpretIO (wordCount ("word-count/", "wordcount", ".txt")) ""
+  >>= (\case
+          Right [< x] => putStrLn x
+          _           => putStrLn "error")
