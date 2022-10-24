@@ -1,24 +1,22 @@
 module Sedris
 
-import System.File
+import public Sedris.Lang
+import Sedris.Interpret
 import public Data.Regex
-
-public export
-data SedCommand : Type where
-  Substitute : (tyre: TyRE a) -> {auto 0 _ : IsConsuming tyre} -> (a -> String)
-            -> SedCommand
-  Delete : (tyre : TyRE a) -> {auto 0 _ : IsConsuming tyre} -> SedCommand
-
-exec : SedCommand -> String -> String
-exec (Substitute tyre f)  = substitute tyre f
-exec (Delete tyre)        = substitute tyre (\_ => "")
-
-runScript : List SedCommand -> String -> String
-runScript xs str = foldl (\str,cm => exec cm str) "" xs
+import public System.File
 
 export
-sed : List SedCommand -> String -> IO ()
-sed cmds fileName = do  file <- readFile fileName -- for now, we read file as string
-                        case file of
-                            Right content => printLn $ runScript cmds content
-                            Left err => printLn $ err
+interpret : (sc : Script [<] Local) -> String -> SnocList String
+interpret sc str = interpretS (Just sc) (init str)
+
+namespace SimpleUse
+  export
+  interpret : (sc : Script [<] Local) -> String
+  interpret sc = unlines $ cast $ interpret sc ""
+
+export
+interpretIO : {st : FileScriptType} -> (sc : Script [<] st) -> String
+            -> IO (Either FileError (SnocList String))
+interpretIO sc str {st = Local} = pure $ Right $ interpret sc str
+interpretIO sc str {st = IO}    = interpretS (Just sc) (init str)
+interpretIO sc str {st = Std}   = interpretS (Just sc) (init str)

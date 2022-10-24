@@ -1,0 +1,3 @@
+$1 --no-color --console-width 0 --no-banner -p sedris -p tyre -p contrib --exec test1 WordCount.idr
+
+rm -rf build

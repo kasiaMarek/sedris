@@ -4,5 +4,12 @@ sourcedir = "src"
 
 depends
   = tyre
-  , collie
   , contrib
+
+modules 
+  = Sedris.Lang
+  , Sedris.Thinnings
+  , Sedris.VariableStore
+  , Sedris.Replace
+  , Sedris.Interpret
+  , Sedris

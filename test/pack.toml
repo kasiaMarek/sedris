@@ -1,0 +1,4 @@
+[custom.all.sedris]
+type = "local"
+path = "../"
+ipkg = "sedris.ipkg"

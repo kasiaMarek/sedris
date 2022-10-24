@@ -1,0 +1,9 @@
+package sedris-test
+
+main = Main
+executable = test
+
+depends = sedris
+        , tyre
+        , test
+        , contrib
