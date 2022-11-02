@@ -9,6 +9,7 @@ core = MkTestPool "core" [] Nothing
       [ "simple-replace"
       , "word-count"
       , "last-lines"
+      , "replaces-from-csv"
       ]
 
 main : IO ()
