@@ -116,7 +116,7 @@ nextLineOfFile : Either File LocalFile
 nextLineOfFile (Left handle) =
   do end <- fEOF handle
      if end
-      then pure $ Right Nothing
+      then map (\_ => Right Nothing) (closeFile handle)
       else mapp (\l => Just (l, Left handle)) (fGetLine handle)
 nextLineOfFile (Right []) = pure $ Right Nothing
 nextLineOfFile (Right (l :: lns)) = pure $ Right $ Just (l, Right lns)
@@ -130,7 +130,8 @@ nextFile (Left  file :: fl) fname =
     (\handle =>
         do end <- fEOF handle
            if end
-            then nextFile fl fname
+            then do closeFile handle
+                    nextFile fl fname
             else mapp (\l => Just (l, (Left handle, file, fl))) (fGetLine handle))
 nextFile (Right [] :: fl) fname = nextFile fl fname
 nextFile (Right (l :: lns)  :: fl) fname
@@ -151,6 +152,7 @@ isLastLine (curr, _, rest)
               openFile (join f) Read >>==
                 (\file =>
                   do end <- fEOF file {io = IO}
+                     closeFile file
                      mapp (&& end) acc)))
           isLastForCurr rest where
   isLastForCurr : IOEither Bool
@@ -177,6 +179,10 @@ from' (MkLineInfo _ lineNumber _) str fs =
 
 initLI : LineInfo
 initLI = MkLineInfo "" 0 False
+
+close : Either File LocalFile -> IO ()
+close (Left handle) = closeFile handle
+close (Right _)     = pure ()
 
 addrCheck : Address -> LineInfo -> Bool
 addrCheck (Line n)         (MkLineInfo _ lineNum _)  = (n == lineNum)
@@ -346,9 +352,11 @@ mutual
     interpretFSCmd (Routine _ _)    _ _ _ _ _ | Right f = absurd (f IsRoutine)
     interpretFSCmd Zap              _ _ _ _ _ | Right f = absurd (f IsZap)
     interpretFSCmd ZapFstLine       _ _ _ _ _ | Right f = absurd (f IsZapFstLine)
-    interpretFSCmd Quit curr full lines vm li {io = Local} | _ = vm.resultSpace
-    interpretFSCmd Quit curr full lines vm li {io = IO}    | _ = pure $ Right $ vm.resultSpace
-    interpretFSCmd Quit curr full lines vm li {io = Std}   | _ = pure $ Right $ vm.resultSpace
+    interpretFSCmd Quit curr full lines vm li {io = Local}  | _ = vm.resultSpace
+    interpretFSCmd Quit curr full (h, y) vm li {io = IO}    | _ =
+      map (\_ => Right $ vm.resultSpace) (close h)
+    interpretFSCmd Quit curr full (h, y) vm li {io = Std}   | _ =
+      map (\_ => Right $ vm.resultSpace) (close h)
     interpretFSCmd (IfThenElse f sc1 sc2) curr full lines vm li | _ =
       if f vm.patternSpace
       then interpretFS (Then sc1 id curr) full lines vm li
@@ -356,13 +364,13 @@ mutual
     interpretFSCmd (Call _ {pos} {mol}) curr full lines vm li | _ =
       let r := getRoutine sx pos vm.store
       in case mol of
-          Matches => interpretFS (Then r id curr) full lines vm li
-          AreLocalStd => interpretFS  (Then (liftFileScript r) id curr)
-                                  full lines vm li
-          AreLocalIO => interpretFS  (Then (liftFileScript r) id curr)
-                                  full lines vm li
-          AreStdIO => interpretFS  (Then (liftFileScriptStd r) id curr)
-                                  full lines vm li
+          Matches     => interpretFS (Then r id curr) full lines vm li
+          AreLocalStd => interpretFS (Then (liftFileScript r) id curr)
+                                     full lines vm li
+          AreLocalIO  => interpretFS (Then (liftFileScript r) id curr)
+                                     full lines vm li
+          AreStdIO    => interpretFS (Then (liftFileScriptStd r) id curr)
+                                     full lines vm li
     interpretFSCmd (WithHoldContent _ f {pos}) curr full lines vm li | _
       = interpretFS
           (Then (f $ getHoldSpace pos vm.store) id curr)
@@ -429,13 +437,17 @@ mutual
       = interpretFS curr full lns vm li
     interpretFSCmd (ReadFrom fl') curr full (fl, flname, rest) vm li {io = IO} | _
       = case fl' of
-        Left file => (openFile (join file) Read) >>==
-                     (\f => interpretFS curr full (Left f, file, rest) vm li)
+        Left file => (do close fl
+                         openFile (join file) Read) >>==
+            (\f => do res <- interpretFS curr full (Left f, file, rest) vm li
+                      map (\_ => res) (closeFile f))
         Right lns => interpretFS curr full (Right lns, flname, rest) vm li
     interpretFSCmd (ReadFrom fl') curr full (fl, flname, rest) vm li {io = Std} | _
       = case fl' of
-        Left file => (openFile (join file) Read) >>==
-                     (\f => interpretFS curr full (Left f, file, rest) vm li)
+        Left file => (do close fl
+                         openFile (join file) Read) >>==
+            (\f => do res <- interpretFS curr full (Left f, file, rest) vm li
+                      map (\_ => res) (closeFile f))
         Right lns => interpretFS curr full (Right lns, flname, rest) vm li
     interpretFSCmd (QueueRead lns) curr full lines vm li {io = Local} | _
       = interpretFS curr full (lines ++ lns) vm li
@@ -454,31 +466,37 @@ mutual
           Local => case isIO of _ impossible
           IO =>
             ((openFile (join f) Append) >>==
-            (\h => fPutStrLn h vm.patternSpace)) >>==
+            (\h => do res <- fPutStrLn h vm.patternSpace
+                      map (\_ => res) (closeFile h))) >>==
             (\_ => interpretFS curr full store vm li)
           Std =>
             ((openFile (join f) Append) >>==
-            (\h => fPutStrLn h vm.patternSpace)) >>==
+            (\h => do res <- fPutStrLn h vm.patternSpace
+                      map (\_ => res) (closeFile h))) >>==
             (\_ => interpretFS curr full store vm li)
     interpretFSCmd (WriteLineTo f {isIO}) curr full store vm li | _
       = case io of
           Local => case isIO of _ impossible
           IO =>
             ((openFile (join f) Append) >>==
-            (\h => fPutStrLn h (getPrefixLine vm.patternSpace))) >>==
+            (\h => do res <- fPutStrLn h (getPrefixLine vm.patternSpace)
+                      map (\_ => res) (closeFile h))) >>==
             (\_ => interpretFS curr full store vm li)
           Std =>
             ((openFile (join f) Append) >>==
-            (\h => fPutStrLn h (getPrefixLine vm.patternSpace))) >>==
+            (\h => do res <- fPutStrLn h (getPrefixLine vm.patternSpace)
+                      map (\_ => res) (closeFile h))) >>==
             (\_ => interpretFS curr full store vm li)
     interpretFSCmd (ClearFile f {isIO}) curr full store vm li | _ =
       case io of
         Local => case isIO of _ impossible
         IO  => ((openFile (join f) WriteTruncate) >>==
-               (\h => fPutStr h "")) >>==
+               (\h => do res <- fPutStr h ""
+                         map (\_ => res) (closeFile h))) >>==
                (\_ => interpretFS curr full store vm li)
         Std => ((openFile (join f) WriteTruncate) >>==
-               (\h => fPutStr h "")) >>==
+               (\h => do res <- fPutStr h ""
+                         map (\_ => res) (closeFile h))) >>==
                (\_ => interpretFS curr full store vm li)
     interpretFSCmd (FileName hs {pos}) curr full store vm li {io = IO} | _ =
       let (_, fname, _) := store
