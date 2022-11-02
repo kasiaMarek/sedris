@@ -13,5 +13,7 @@ tail count fileName =
 
 last3lines : IO ()
 last3lines =
-  map (\_ => ())
-      (interpretIO (tail 3 ("last-lines/", "lastlines", ".txt")) "")
+  do res <- interpretIO (tail 3 ("", "lastlines", ".txt")) ""
+     case res of
+      Left p => putStr (show p)
+      Right r => putStr ""
