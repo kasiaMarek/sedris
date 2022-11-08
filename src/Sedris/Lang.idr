@@ -24,14 +24,9 @@ LocalFile : Type
 LocalFile = List String
 
 ||| A file stored on the OS
-||| (path, name, extension)
 public export
 IOFile : Type
-IOFile = (String, String, String)
-
-public export
-join : IOFile -> String
-join (path, name, ext) = path ++ name ++ ext
+IOFile = String
 
 public export
 data FileScriptType = Local | IO | Std
@@ -217,7 +212,6 @@ mutual
                           -> Type where
     (>)  : Command sx ys LineByLine t -> CommandWithAddress sx ys t
     (?>) : Address -> Command sx [] LineByLine t -> CommandWithAddress sx [] t
-    --^ this allows to group multiple commands with the same address, but the
 
   ||| A file script is executed on each line of the file
   public export
@@ -229,7 +223,9 @@ mutual
   public export
   data ScriptCommand : Variables -> List Variable
                     -> FileScriptType -> Type where
+    ||| Line by line processing for files
     (*)   : List IOFile -> FileScript sx IO -> ScriptCommand sx [] IO -- IO
+    ||| Line by line processing for stdin
     (|*>) : FileScript sx Std -> ScriptCommand sx [] IO -- IO
     ||| Line by line processing for in program data
     (*>)  : List String -> FileScript sx Local -> ScriptCommand sx [] t

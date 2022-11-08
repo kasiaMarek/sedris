@@ -9,7 +9,7 @@ replacesFromCSV source files =
     [ > HoldApp "map"
                 (\acc,str =>  let (head ::: xs) := split (== ',') str
                               in acc ++ map (\x => (head, x)) xs)]
-  , |> CreateHold "filename" ("", "", "")
+  , |> CreateHold "filename" ""
   , files *
     [ Line 1 ?> FileName "filename"
     , Line 1 ?> WithHoldContent "filename" (\f => [ > ClearFile (outFile f)])
@@ -19,14 +19,16 @@ replacesFromCSV source files =
                                           , > Print])
     ]
   ] where
-  outFile : (String, String, String) -> (String, String, String)
-  outFile (path, name, ext) = (path, name ++ "_out", ext)
+  outFile : String -> String
+  outFile str =
+    let (_, name, ext) := splitFilePath str
+    in name ++ "_out" ++ "." ++ ext
 
 source : IOFile
-source = ("", "replaces_in", ".txt")
+source = "replaces_in.txt"
 
 f1 : IOFile
-f1 = ("", "subs1", ".txt")
+f1 = "subs1.txt"
 
 test : IO ()
 test =

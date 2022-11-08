@@ -13,7 +13,7 @@ tail count fileName =
 
 last3lines : IO ()
 last3lines =
-  do res <- interpretIO (tail 3 ("", "lastlines", ".txt")) ""
+  do res <- interpretIO (tail 3 "lastlines.txt") ""
      case res of
       Left p => putStr (show p)
       Right r => putStr ""

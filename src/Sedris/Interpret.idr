@@ -20,7 +20,7 @@ IOEither a = PrimIO.IO (Either FileError a)
 
 public export
 defaultFile : IOFile
-defaultFile = ("./","","")
+defaultFile = ""
 
 public export
 Result : FileScriptType -> Type
@@ -126,7 +126,7 @@ nextFile : List (Either IOFile LocalFile)
         -> IOEither (Maybe (String, IOFilesStore))
 nextFile [] fname = pure $ Right Nothing
 nextFile (Left  file :: fl) fname =
-  openFile (join file) Read >>==
+  openFile file Read >>==
     (\handle =>
         do end <- fEOF handle
            if end
@@ -149,7 +149,7 @@ isLastLine (curr, _, rest)
   = foldr (\case
             (Right lns) => mapp (&& isNil lns)
             (Left f) => (\acc =>
-              openFile (join f) Read >>==
+              openFile f Read >>==
                 (\file =>
                   do end <- fEOF file {io = IO}
                      closeFile file
@@ -438,14 +438,14 @@ mutual
     interpretFSCmd (ReadFrom fl') curr full (fl, flname, rest) vm li {io = IO} | _
       = case fl' of
         Left file => (do close fl
-                         openFile (join file) Read) >>==
+                         openFile file Read) >>==
             (\f => do res <- interpretFS curr full (Left f, file, rest) vm li
                       map (\_ => res) (closeFile f))
         Right lns => interpretFS curr full (Right lns, flname, rest) vm li
     interpretFSCmd (ReadFrom fl') curr full (fl, flname, rest) vm li {io = Std} | _
       = case fl' of
         Left file => (do close fl
-                         openFile (join file) Read) >>==
+                         openFile file Read) >>==
             (\f => do res <- interpretFS curr full (Left f, file, rest) vm li
                       map (\_ => res) (closeFile f))
         Right lns => interpretFS curr full (Right lns, flname, rest) vm li
@@ -465,12 +465,12 @@ mutual
       = case io of
           Local => case isIO of _ impossible
           IO =>
-            ((openFile (join f) Append) >>==
+            ((openFile f Append) >>==
             (\h => do res <- fPutStrLn h vm.patternSpace
                       map (\_ => res) (closeFile h))) >>==
             (\_ => interpretFS curr full store vm li)
           Std =>
-            ((openFile (join f) Append) >>==
+            ((openFile f Append) >>==
             (\h => do res <- fPutStrLn h vm.patternSpace
                       map (\_ => res) (closeFile h))) >>==
             (\_ => interpretFS curr full store vm li)
@@ -478,23 +478,23 @@ mutual
       = case io of
           Local => case isIO of _ impossible
           IO =>
-            ((openFile (join f) Append) >>==
+            ((openFile f Append) >>==
             (\h => do res <- fPutStrLn h (getPrefixLine vm.patternSpace)
                       map (\_ => res) (closeFile h))) >>==
             (\_ => interpretFS curr full store vm li)
           Std =>
-            ((openFile (join f) Append) >>==
+            ((openFile f Append) >>==
             (\h => do res <- fPutStrLn h (getPrefixLine vm.patternSpace)
                       map (\_ => res) (closeFile h))) >>==
             (\_ => interpretFS curr full store vm li)
     interpretFSCmd (ClearFile f {isIO}) curr full store vm li | _ =
       case io of
         Local => case isIO of _ impossible
-        IO  => ((openFile (join f) WriteTruncate) >>==
+        IO  => ((openFile f WriteTruncate) >>==
                (\h => do res <- fPutStr h ""
                          map (\_ => res) (closeFile h))) >>==
                (\_ => interpretFS curr full store vm li)
-        Std => ((openFile (join f) WriteTruncate) >>==
+        Std => ((openFile f WriteTruncate) >>==
                (\h => do res <- fPutStr h ""
                          map (\_ => res) (closeFile h))) >>==
                (\_ => interpretFS curr full store vm li)
@@ -629,7 +629,7 @@ mutual
     = case fls of
         [] => interpretS (Just sc) vm
         (f :: fls) =>
-          openFile (join f) Read {io = IO}
+          openFile f Read {io = IO}
           >>== (\h => interpretFS (Just [] id (Just sc)) fsc
                                   (Left h, f, map Left fls) vm initLI)
   interpretS (Just ((|*> fsc) :: sc)) vm =
@@ -640,7 +640,7 @@ mutual
     = case fls of
         [] => interpretS (Just sc) vm
         (f :: fls) =>
-          openFile (join f) Read {io = IO}
+          openFile f Read {io = IO}
           >>== (\h => interpretFS (Just [] id (Then sc tau sc'))
                                   fsc (Left h, f, map Left fls) vm initLI)
   interpretS (Then ((|*> fsc) :: sc) tau sc') vm
