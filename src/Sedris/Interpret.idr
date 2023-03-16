@@ -189,7 +189,7 @@ addrCheck (Line n)         (MkLineInfo _ lineNum _)  = (n == lineNum)
 addrCheck (Lines ns)       (MkLineInfo _ lineNum _)  = isJust $ find (== lineNum) ns
 addrCheck (LineRange s l)  (MkLineInfo _ lineNum _)  = lineNum >= s && lineNum <= l
 addrCheck (RegexWhole re)  (MkLineInfo line _ _)     = match re line
-addrCheck (RegexPrefix re) (MkLineInfo line _ _)     = isJust $ parsePrefix re line
+addrCheck (RegexPrefix re) (MkLineInfo line _ _)     = isJust $ fst $ parsePrefix re line True
 addrCheck (RegexExists re) (MkLineInfo line _ _)     =
   case asDisjointMatches re line True of
     (Suffix _)   => False
@@ -520,7 +520,7 @@ mutual
     interpretFS (Just ((> cmd) :: fsc') tau sc)
                             full strs vm li | (ys ** Refl)
       = interpretFSCmd
-          cmd (Just fsc' (Weaken ys . tau) sc) full strs vm li 
+          cmd (Just fsc' (Weaken ys . tau) sc) full strs vm li
   interpretFS (Just ((addr ?> cmd) :: fsc') tau sc)
                           full strs vm li
     = if (addrCheck addr li)
@@ -541,8 +541,8 @@ mutual
                           full strs vm li
     = if (addrCheck addr li)
       then interpretFSCmd
-            cmd (Then fsc' tau' fsc) full strs vm li 
-      else interpretFS (Then fsc' tau' fsc) full strs vm li 
+            cmd (Then fsc' tau' fsc) full strs vm li
+      else interpretFS (Then fsc' tau' fsc) full strs vm li
 
   export
   interpretCmd : {sx : Variables}
@@ -610,7 +610,7 @@ mutual
                              (Right ln, defaultFile, []) vm initLI
   interpretS (Just ((|> cmd) :: sc)) vm {sx} with (extractNewVars cmd)
     interpretS (Just ((|> cmd) :: sc)) vm {sx} | (ys ** Refl)
-      = interpretCmd cmd (Just sc) vm 
+      = interpretCmd cmd (Just sc) vm
   interpretS (Then [] tau scCont) vm
     = interpretS scCont (lift (\s => weaken s tau) vm)
   interpretS {sx} (Then ((ln *> fsc) :: sc) tau scCont) vm

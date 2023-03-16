@@ -46,9 +46,9 @@ performReplace str (Suffix pattern replace) = pack $ reverse
 performReplace str (AllRe re f)
   = toString f (asDisjointMatches re str True)
 performReplace str (PrefixRe re f) =
-  case parsePrefix re str of
-    Nothing => str
-    (Just (tree, tail)) => f tree ++ tail
+  case parsePrefix re str True of
+    (Nothing, rest) => str
+    (Just tree, tail) => f tree ++ tail
 performReplace str (CharSubst xs) = pack $ cast
   $ foldl (\acc,c => acc :< fromMaybe c (map snd (find (\c' => fst c' == c) xs)))
           (the (SnocList Char) $ [<])

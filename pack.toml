@@ -2,4 +2,4 @@
 type = "github"
 ipkg = "tyre.ipkg"
 url = "https://github.com/kasiaMarek/TyRE"
-commit = "latest:greedy"
+commit = "latest:main"

@@ -1,12 +1,12 @@
 package sedris
 
-sourcedir = "src"
+sourcedir = "src/"
 
 depends
   = tyre
   , contrib
 
-modules 
+modules
   = Sedris.Lang
   , Sedris.Thinnings
   , Sedris.VariableStore
